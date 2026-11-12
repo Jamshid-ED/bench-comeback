@@ -337,6 +337,14 @@ textarea.io.notes { font-family: var(--body); font-size: 16px; font-weight: 400;
 .patrow { display: grid; grid-template-columns: 38px 1fr; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .patrow .chip { min-height: 32px; padding: 0 9px; font-size: 12.5px; }
 
+/* recovery chart: Whoop's three bands, always labelled with their ranges */
+.chart .rb-red, .sw.rb-red { fill: var(--hot); background: var(--hot); }
+.chart .rb-yellow, .sw.rb-yellow { fill: var(--signal); background: var(--signal); }
+.chart .rb-green, .sw.rb-green { fill: var(--good); background: var(--good); }
+.chart .tmk { fill: var(--ink); }
+.legend .sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 8px; }
+.legend .sw:first-child { margin-left: 0; }
+
 </style>
 </head>
 <body>
@@ -616,7 +624,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
-  const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
+  const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
   const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
   const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
 
@@ -813,6 +821,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (cur && force) { S.logs[cur.id] = { id: cur.id, del: true, u: Date.now() }; push("log_" + cur.id); }
     const day = DAYS[dayId], id = Date.now().toString(36);
     const log = { id, day: dayId, date: dkey(), start: Date.now(), end: 0, items: {}, u: 0 };
+    const checkedIn = recOn(dkey());
+    if (checkedIn && checkedIn.rec != null) log.rec = checkedIn.rec;
     day.items.forEach((it, i) => { log.items[i] = { ex: it.ex, alt: false, sets: defaultRows(it, id) }; });
     S.logs[id] = log; S.active = id;
     if (!S.settings.started) { S.settings.started = Date.now(); touchSettings(); }
@@ -1099,6 +1109,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       <div class="tiles"><div class="tile"><b class="num">${fin.length}</b><span>sessions logged</span></div><div class="tile"><b class="num">${(vol / 1000).toFixed(1)}</b><span>tonnes lifted</span></div><div class="tile"><b class="num">${be ? fmt(Math.round(be)) : "–"}</b><span>best bench est., kg</span></div></div>
       <div class="card stack"><div><h2>Bench press, estimated max</h2><p class="small muted">Best set of each session converted to a one-rep max, kg</p></div>${benchChart()}</div>
       <div class="card stack"><div><h2>Weekly load</h2><p class="small muted">Tonnes lifted per week, with the number of sessions under each bar</p></div>${weekChart()}</div>
+      ${recoveryCard()}
       ${bodyCard()}
       ${prs.length ? `<div class="card stack"><h2>Best lifts</h2><div class="hist">${prs.map((p) => `<button data-a="ex" data-ex="${p.ex}"><span class="m"><b>${esc(EX[p.ex].n)}</b><span>${esc(bestSetText(p.ex))}</span></span><span class="pill num">≈ ${fmt(Math.round(p.v))} kg max</span></button>`).join("")}</div></div>` : ""}
       <button class="btn wide" data-a="nav" data-v="history">Open the full training log</button></div>`;
@@ -1262,6 +1273,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     const v = inp.value === "" ? NaN : Math.round(parseFloat(inp.value));
     log.rec = isNaN(v) ? null : Math.min(100, Math.max(0, v));
     touchLog(log);
+    if (log.rec != null) upsertDay(dkey(log.start), { rec: log.rec });
     if (rerender) render(true);
   }
 
@@ -1613,7 +1625,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     discard: () => { const log = activeLog(); if (log) { S.logs[log.id] = { id: log.id, del: true, u: Date.now() }; push("log_" + log.id); } S.active = null; ui.rest = null; saveLocal(); closeSheet(); go("today"); },
     close: () => closeSheet(),
     "pics-clear": () => { try { localStorage.removeItem("benchComeback.pics"); } catch (e) { /* storage unavailable */ } for (const k in PIC) delete PIC[k]; render(true); toast("Pictures removed"); },
-    rec: (d) => { const log = activeLog(); if (!log) return; log.rec = log.rec == null ? 50 : Math.min(100, Math.max(0, log.rec + +d.d)); touchLog(log); render(true); },
+    rec: (d) => { const log = activeLog(); if (!log) return; log.rec = log.rec == null ? 50 : Math.min(100, Math.max(0, log.rec + +d.d)); touchLog(log); upsertDay(dkey(log.start), { rec: log.rec }); render(true); },
     ex: (d) => exSheet(d.ex),
     log: (d) => openSess("log", d.id),
     "log-del": (d, el) => { if (el.dataset.sure) { S.logs[d.id] = { id: d.id, del: true, u: Date.now() }; saveLocal(); push("log_" + d.id); closeSheet(); go("history"); toast("Workout deleted"); } else { el.dataset.sure = 1; el.textContent = "Tap again to delete"; } },
@@ -1670,19 +1682,31 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     return null;
   }
 
-  /* ---------- bodyweight: one weigh-in per day, a trend line and an optional goal ---------- */
-  const bodyList = () => S.body.list.slice().sort((a, b) => a.t - b.t);
+  /* ---------- morning check-in: weight, Whoop recovery, sleep and HRV, one record per day ---------- */
+  const dayRecs = () => S.body.list.slice().sort((a, b) => a.t - b.t);
+  const bodyList = () => dayRecs().filter((p) => +p.kg > 0);
+  const recOn = (key) => S.body.list.find((p) => p.id === key);
+  function upsertDay(key, fields) {
+    let p = recOn(key);
+    if (!p) { p = { id: key, t: key === dkey() ? Date.now() : dateOf(key) }; S.body.list.push(p); }
+    Object.assign(p, fields);
+    touchBody();
+  }
   const kgf = (n) => (Math.round(n * 10) / 10).toFixed(1);
-  const signed = (d) => (d > 0 ? "+" : d < 0 ? "−" : "±") + kgf(Math.abs(d)) + " kg";
+  const signed = (d, unit, dp = 1) => (d > 0 ? "+" : d < 0 ? "−" : "±") + Math.abs(d).toFixed(dp) + (unit ? " " + unit : "");
+  const dayLine = (p) => [+p.kg > 0 ? kgf(p.kg) + " kg" : "", p.rec != null ? "recovery " + p.rec + "%" : "", p.sleep ? "sleep " + fmt(p.sleep) + " h" : "", p.hrv ? "HRV " + p.hrv + " ms" : ""].filter(Boolean).join(" · ");
   function bodyTrend(l) {
     const last = l[l.length - 1]; if (!last) return "";
     let ref = null;
     for (const p of l) if (p.t <= last.t - 6 * 864e5) ref = p;
-    return ref ? `${signed(last.kg - ref.kg)} since ${shortDate(ref.t)}` : "";
+    return ref ? `${signed(last.kg - ref.kg, "kg")} since ${shortDate(ref.t)}` : "";
   }
   function bodyRow() {
-    const l = bodyList(), last = l[l.length - 1], days = last ? Math.round((dayStart(Date.now()) - dayStart(last.t)) / 864e5) : 0, tr = bodyTrend(l);
-    return `<div class="card row"><div class="grow"><h2>Bodyweight</h2><p class="small muted num">${last ? `${kgf(last.kg)} kg, ${days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago"}${tr ? " · " + tr : ""}` : "Not logged yet. A few morning weigh-ins a week are enough to see the trend."}</p></div><button class="btn sm" data-a="bw-open">Log weight</button></div>`;
+    const l = bodyList(), last = l[l.length - 1], tr = bodyTrend(l), td = recOn(dkey());
+    const days = last ? Math.round((dayStart(Date.now()) - dayStart(last.t)) / 864e5) : 0;
+    const today = td ? [td.rec != null ? "recovery " + td.rec + "%" : "", td.sleep ? "sleep " + fmt(td.sleep) + " h" : ""].filter(Boolean).join(" · ") : "";
+    const weight = last ? `${kgf(last.kg)} kg, ${days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago"}${tr ? " · " + tr : ""}` : "";
+    return `<div class="card row"><div class="grow"><h2>Morning check-in</h2><p class="small muted num">${today || weight ? [today ? "Today: " + today : "", weight].filter(Boolean).join("<br>") : "Recovery and sleep from Whoop, and your weight. Half a minute each morning shows the trend."}</p></div><button class="btn sm" data-a="bw-open">Check in</button></div>`;
   }
   function bodyChart() {
     const pts = bodyList().filter((p) => p.t >= Date.now() - 120 * 864e5);
@@ -1706,42 +1730,81 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   function bodyCard() {
     const l = bodyList(), last = l[l.length - 1], tr = bodyTrend(l), goal = +S.settings.goalKg || 0;
     return `<div class="card stack"><div><h2>Bodyweight</h2><p class="small muted num">${last ? [`Latest ${kgf(last.kg)} kg`, tr, goal ? `${kgf(Math.abs(last.kg - goal))} kg ${last.kg > goal ? "above" : last.kg < goal ? "below" : "from"} the goal` : ""].filter(Boolean).join(" · ") : "Kilograms, last four months"}</p></div>${bodyChart()}
-      <div class="grid2"><button class="btn sm" data-a="bw-open">Log weight</button><button class="btn sm" data-a="bw-all" ${l.length ? "" : "disabled"}>All weigh-ins</button></div></div>`;
+      <div class="grid2"><button class="btn sm" data-a="bw-open">Check in</button><button class="btn sm" data-a="bw-all" ${S.body.list.length ? "" : "disabled"}>All check-ins</button></div></div>`;
   }
-  function bodySheet() {
-    const l = bodyList(), last = l[l.length - 1];
-    sheet(`<h2>Log bodyweight</h2>
-      <div class="grid2"><div class="field"><label for="bw-kg">Weight, kg</label><input id="bw-kg" type="number" inputmode="decimal" step="0.1" placeholder="${last ? kgf(last.kg) : "80.0"}"></div>
-      <div class="field"><label for="bw-date">Date</label><input id="bw-date" type="date" value="${dkey()}"></div></div>
-      <div class="field"><label for="bw-goal">Goal weight, kg (optional)</label><input id="bw-goal" type="number" inputmode="decimal" step="0.5" placeholder="none" value="${S.settings.goalKg || ""}"></div>
-      <p class="small muted">Weigh in the morning before eating, so the numbers compare. One entry per day: a second one replaces the first.</p>
+
+  /* recovery and sleep, last four weeks, with training days marked underneath */
+  function recoveryCard() {
+    const t0 = dayStart(Date.now()), days = [];
+    for (let i = 27; i >= 0; i--) { const d = new Date(t0); d.setDate(d.getDate() - i); const k = dkey(d.getTime()); days.push({ k, t: d.getTime(), r: recOn(k) || {} }); }
+    const hasRec = days.some((d) => d.r.rec != null), hasSleep = days.some((d) => d.r.sleep);
+    const head = `<div><h2>Recovery and sleep</h2><p class="small muted">Last four weeks, from your morning check-ins.</p></div>`;
+    if (!hasRec && !hasSleep) return `<div class="card stack">${head}<div class="empty">Check in each morning with Whoop's recovery and sleep, and four weeks of both build up here with your training days marked underneath.</div><button class="btn sm" data-a="bw-open">Check in</button></div>`;
+    const lifts = new Set(finished().map((l) => dkey(l.start))), others = new Set(S.acts.list.filter((a) => !a.planned).map((a) => dkey(a.t)));
+    const W = 328, L = 24, R = 4, slot = (W - L - R) / 28, bw = slot - 2.4, X = (i) => L + i * slot + 1.2;
+    const xl = (H) => [0, 14, 27].map((i) => `<text x="${(X(i) + bw / 2).toFixed(1)}" y="${H - 3}" text-anchor="${i === 0 ? "start" : i === 27 ? "end" : "middle"}">${shortDate(days[i].t)}</text>`).join("");
+    let recSvg = "", sleepSvg = "";
+    if (hasRec) {
+      const H = 128, T = 8, B = 30, y = (v) => T + ((100 - v) * (H - T - B)) / 100;
+      recSvg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Whoop recovery per day for four weeks">${[0, 34, 67, 100].map((v) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text x="${L - 5}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${v}</text>`).join("")}
+        ${days.map((d, i) => (d.r.rec != null ? `<rect class="rb-${recBand(d.r.rec)}" x="${X(i).toFixed(1)}" y="${y(d.r.rec).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.5, y(0) - y(d.r.rec)).toFixed(1)}" rx="1.5"/>` : "")).join("")}
+        ${days.map((d, i) => (lifts.has(d.k) ? `<rect class="tmk" x="${(X(i) + bw / 2 - 2.5).toFixed(1)}" y="${H - B + 5}" width="5" height="5" rx="1"/>` : "") + (others.has(d.k) ? `<circle class="tmk" cx="${(X(i) + bw / 2).toFixed(1)}" cy="${H - B + 14.5}" r="2.5"/>` : "")).join("")}${xl(H)}</svg>`;
+    }
+    if (hasSleep) {
+      const H = 104, T = 10, B = 16, top = Math.max(10, Math.ceil(Math.max(...days.map((d) => +d.r.sleep || 0)))), y = (v) => T + ((top - v) * (H - T - B)) / top;
+      sleepSvg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours of sleep per night for four weeks">${[0, 4, 8].map((v) => `<line class="${v === 8 ? "ref" : "grid"}" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text x="${L - 5}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${v}</text>`).join("")}
+        ${days.map((d, i) => (d.r.sleep ? `<rect class="bar" x="${X(i).toFixed(1)}" y="${y(d.r.sleep).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.5, y(0) - y(d.r.sleep)).toFixed(1)}" rx="1.5"/>` : "")).join("")}${xl(H)}</svg>`;
+    }
+    const avg = (from, to, f) => { const v = days.slice(from, to).map((d) => d.r[f]).filter((x) => x != null && x !== 0); return v.length ? v.reduce((a, b) => a + +b, 0) / v.length : null; };
+    const stat = (f, label, unit, dp) => { const a = avg(21, 28, f), b = avg(14, 21, f); return a == null ? "" : `${label} ${a.toFixed(dp)}${unit}${b == null ? "" : ` (${signed(a - b, "", dp)} on the week before)`}`; };
+    const stats = [stat("rec", "recovery", "%", 0), stat("sleep", "sleep", " h", 1), stat("hrv", "HRV", " ms", 0)].filter(Boolean).join(" · ");
+    return `<div class="card stack">${head}
+      ${hasRec ? `<p class="eyebrow">Recovery, %</p>${recSvg}<p class="small muted legend"><span class="sw rb-green"></span>67 and up <span class="sw rb-yellow"></span>34 to 66 <span class="sw rb-red"></span>under 34 <span class="mk"><i class="l"></i></span>strength day <span class="mk"><i class="o"></i></span>other session</p>` : ""}
+      ${hasSleep ? `<p class="eyebrow">Sleep, hours. Dashed line at 8</p>${sleepSvg}` : ""}
+      ${stats ? `<p class="small muted num">Last 7 days: ${stats}.</p>` : ""}
+      <div class="grid2"><button class="btn sm" data-a="bw-open">Check in</button><button class="btn sm" data-a="bw-all">All check-ins</button></div></div>`;
+  }
+  function bodySheet(key = dkey()) {
+    const l = bodyList(), last = l[l.length - 1], td = recOn(key) || {};
+    sheet(`<h2>Morning check-in</h2>
+      <div class="grid2"><div class="field"><label for="bw-rec">Whoop recovery, %</label><input id="bw-rec" type="number" inputmode="numeric" min="0" max="100" step="1" placeholder="optional" value="${td.rec ?? ""}"></div>
+      <div class="field"><label for="bw-sleep">Sleep, hours</label><input id="bw-sleep" type="number" inputmode="decimal" min="0" max="16" step="0.1" placeholder="7.5" value="${td.sleep || ""}"></div></div>
+      <div class="grid2"><div class="field"><label for="bw-kg">Weight, kg</label><input id="bw-kg" type="number" inputmode="decimal" step="0.1" placeholder="${last ? kgf(last.kg) : "80.0"}" value="${td.kg || ""}"></div>
+      <div class="field"><label for="bw-hrv">HRV, ms</label><input id="bw-hrv" type="number" inputmode="numeric" step="1" placeholder="optional" value="${td.hrv || ""}"></div></div>
+      <div class="grid2"><div class="field"><label for="bw-date">Date</label><input id="bw-date" type="date" value="${key}"></div>
+      <div class="field"><label for="bw-goal">Goal weight, kg</label><input id="bw-goal" type="number" inputmode="decimal" step="0.5" placeholder="none" value="${S.settings.goalKg || ""}"></div></div>
+      <p class="small muted">Fill in what you have; empty boxes are left as they were. One record per day. Weigh in before eating so the numbers compare.</p>
       <button class="btn primary wide" data-a="bw-save">Save</button><button class="btn ghost wide" data-a="close">Cancel</button>`);
   }
   function bodyAllSheet() {
-    const l = bodyList().reverse();
-    sheet(`<h2>All weigh-ins</h2>${l.length ? `<div class="hist">${l.map((p) => `<div><span class="d">${shortDate(p.t)}</span><span class="m"><b class="num">${kgf(p.kg)} kg</b></span><button class="btn sm danger" data-a="bw-del" data-id="${p.id}">Remove</button></div>`).join("")}</div>` : `<p class="muted">No weigh-ins yet.</p>`}<button class="btn wide" data-a="close">Close</button>`);
+    const l = dayRecs().reverse();
+    sheet(`<h2>All check-ins</h2>${l.length ? `<div class="hist">${l.map((p) => `<div><span class="d">${shortDate(p.t)}</span><span class="m"><span class="num">${esc(dayLine(p)) || "empty"}</span></span><button class="btn sm danger" data-a="bw-del" data-id="${p.id}">Remove</button></div>`).join("")}</div>` : `<p class="muted">No check-ins yet.</p>`}<button class="btn wide" data-a="close">Close</button>`);
   }
   Object.assign(A, {
     "bw-open": () => bodySheet(),
     "bw-all": () => bodyAllSheet(),
     "bw-del": (d) => { S.body.list = S.body.list.filter((p) => p.id !== d.id); touchBody(); render(true); bodyAllSheet(); },
     "bw-save": () => {
-      const kg = parseFloat($("#bw-kg").value), date = $("#bw-date").value || dkey(), g = parseFloat($("#bw-goal").value), goal = isNaN(g) || g <= 0 ? 0 : Math.round(g * 10) / 10;
-      const goalChanged = goal !== (+S.settings.goalKg || 0);
-      if (isNaN(kg) && !goalChanged) return toast("Enter your weight");
-      if (!isNaN(kg) && (kg < 30 || kg > 300)) return toast("That weight does not look right");
+      const num = (id) => { const x = parseFloat($(id).value); return isNaN(x) ? null : x; };
+      const kg = num("#bw-kg"), rec = num("#bw-rec"), sleep = num("#bw-sleep"), hrv = num("#bw-hrv"), g = num("#bw-goal"), date = $("#bw-date").value || dkey();
+      const goal = g == null || g <= 0 ? 0 : Math.round(g * 10) / 10, goalChanged = goal !== (+S.settings.goalKg || 0);
+      if (kg == null && rec == null && sleep == null && hrv == null && !goalChanged) return toast("Enter at least one number");
+      if (kg != null && (kg < 30 || kg > 300)) return toast("That weight does not look right");
+      if (rec != null && (rec < 0 || rec > 100)) return toast("Recovery is a percentage, 0 to 100");
+      if (sleep != null && (sleep <= 0 || sleep > 16)) return toast("Sleep is in hours, up to 16");
+      if (hrv != null && (hrv < 5 || hrv > 300)) return toast("That HRV does not look right");
       if (date > dkey()) return toast("That date is still ahead");
       if (goalChanged) { S.settings.goalKg = goal; touchSettings(); }
-      if (!isNaN(kg)) {
-        S.body.list = S.body.list.filter((p) => p.id !== date);
-        S.body.list.push({ id: date, t: date === dkey() ? Date.now() : dateOf(date), kg: Math.round(kg * 10) / 10 });
-        touchBody();
-      }
+      const f = {};
+      if (kg != null) f.kg = Math.round(kg * 10) / 10;
+      if (rec != null) f.rec = Math.round(rec);
+      if (sleep != null) f.sleep = Math.round(sleep * 10) / 10;
+      if (hrv != null) f.hrv = Math.round(hrv);
+      if (Object.keys(f).length) upsertDay(date, f);
       closeSheet(); render(true);
-      toast(isNaN(kg) ? "Goal saved" : kgf(kg) + " kg logged");
+      toast(Object.keys(f).length ? "Check-in saved" : "Goal saved");
     },
   });
-
 
   /* ---------- interval timer: warm-up, rounds of work and rest, cool-down; position is worked out from the clock, so it survives a reload ---------- */
   const IV_PRESETS = {
@@ -1942,6 +2005,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     return `<section class="band"><div class="wrap stack"><p class="eyebrow">Week planner · ${shortDate(days[0].t)} to ${shortDate(days[6].t)}</p><h1 class="display">${off === 0 ? "This week" : off === 1 ? "Next week" : off === -1 ? "Last week" : "Week of " + shortDate(days[0].t)}</h1>
       <div class="grid3"><button class="btn sm" data-a="wk" data-d="-1">‹ Earlier</button><button class="btn sm" data-a="wk" data-d="0" ${off === 0 ? "disabled" : ""}>This week</button><button class="btn sm" data-a="wk" data-d="1">Later ›</button></div></div></section>
       <div class="wrap stack" style="padding-top:16px">${rows}
+      <button class="btn wide" data-a="cal-open">Send the plan to your phone calendar</button>
       <div class="card stack"><div><h2>Weekly pattern</h2><p class="small muted">Tap what you normally do on each day. ${S.settings.weekSet ? "" : "This is a starting pattern, so change it to match your week. "}It repeats every week and fills the planner. Strength days take the next program sessions in order.${count ? " Now: " + count + " a week." : ""}</p></div>${patRows}</div>
       <button class="btn wide" data-a="nav" data-v="today">Back to today</button></div>`;
   }
@@ -1955,6 +2019,83 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       S.settings.week = { ...p, [d.k]: list.sort((a, b) => a - b) };
       if (!S.settings.weekSet) S.settings.weekSet = Date.now();
       touchSettings(); render(true);
+    },
+  });
+
+  /* ---------- calendar export: planned and booked sessions as a standard calendar file ---------- */
+  const canFile = !window.claude; // inside Claude the page cannot hand over a calendar file; the installed phone app can
+  function calEvents(weeks) {
+    const q = queueFor(weeks - 1), out = [];
+    for (let w = 0; w < weeks; w++) for (const d of weekDays(w).map((t, i) => dayInfo(t, i))) {
+      if (d.past) continue;
+      for (const kind of d.todo) {
+        const qd = kind === "lift" ? q[d.k] : null;
+        if (kind === "lift") {
+          if (!qd) continue;
+          out.push({ k: d.k, id: "lift", title: "Strength: " + dayTitle(qd), min: Math.max(30, Math.round(estimate(qd).min / 5) * 5),
+            desc: qd.items.filter((it) => !EX[it.ex].optional).map((it) => EX[it.ex].n + ": " + summary(it)).join("\n") });
+        } else out.push({ k: d.k, id: kind, title: kind === "iv" ? "Intervals, 4 × 4 min" : PK[kind], min: kind === "bjj" ? 90 : 40, desc: kind === "z2" ? "Easy pace, able to talk. Log the zone minutes from Whoop afterwards." : kind === "iv" ? "10 min easy, then 4 rounds of 4 min hard with 3 min easy between." : "" });
+      }
+      for (const a of d.booked) out.push({ k: d.k, id: "b" + a.id, title: actName(a), min: a.min || 45, desc: a.note || "" });
+    }
+    return out;
+  }
+  function buildIcs(events, time, alarm) {
+    const z = (n) => pad2(n), esc2 = (s) => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+    const fold = (line) => { const parts = []; let s = line; while (s.length > 60) { parts.push(s.slice(0, 60)); s = " " + s.slice(60); } parts.push(s); return parts.join("\r\n"); };
+    const now = new Date(), stamp = now.getUTCFullYear() + z(now.getUTCMonth() + 1) + z(now.getUTCDate()) + "T" + z(now.getUTCHours()) + z(now.getUTCMinutes()) + z(now.getUTCSeconds()) + "Z";
+    const local = (d) => d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + "T" + z(d.getHours()) + z(d.getMinutes()) + "00";
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Bench Comeback//Training plan//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"], next = {};
+    for (const e of events) {
+      const [y, m, d] = e.k.split("-").map(Number);
+      lines.push("BEGIN:VEVENT", "UID:" + e.k + "-" + e.id + "@bench-comeback", "DTSTAMP:" + stamp);
+      if (time) {
+        const [hh, mm] = time.split(":").map(Number);
+        const start = next[e.k] ? new Date(next[e.k]) : new Date(y, m - 1, d, hh, mm), end = new Date(start.getTime() + e.min * 60000);
+        next[e.k] = end.getTime(); // a second session on the same day follows the first
+        lines.push("DTSTART:" + local(start), "DTEND:" + local(end));
+      } else {
+        const end = new Date(y, m - 1, d + 1);
+        lines.push("DTSTART;VALUE=DATE:" + y + z(m) + z(d), "DTEND;VALUE=DATE:" + end.getFullYear() + z(end.getMonth() + 1) + z(end.getDate()));
+      }
+      lines.push(fold("SUMMARY:" + esc2(e.title)));
+      if (e.desc) lines.push(fold("DESCRIPTION:" + esc2(e.desc)));
+      if (time && alarm > 0) lines.push("BEGIN:VALARM", "ACTION:DISPLAY", fold("DESCRIPTION:" + esc2(e.title)), "TRIGGER:-PT" + alarm + "M", "END:VALARM");
+      lines.push("END:VEVENT");
+    }
+    lines.push("END:VCALENDAR");
+    return lines.join("\r\n") + "\r\n";
+  }
+  function calSheet() {
+    const c = ui.cal || (ui.cal = { weeks: 4 }), s = S.settings, ev = calEvents(c.weeks);
+    const last = ev.length ? ev[ev.length - 1].k : null;
+    sheet(`<div><p class="eyebrow">Week planner</p><h2>Send the plan to your calendar</h2></div>
+      <div class="field"><span class="lbl">How far ahead</span><div class="chips">${[2, 4, 8].map((w) => `<button class="chip ${c.weeks === w ? "on" : ""}" data-a="cal-weeks" data-w="${w}">${w} weeks</button>`).join("")}</div></div>
+      <div class="grid2"><div class="field"><label for="cal-time">Usual start time</label><input id="cal-time" data-set="calTime" data-text type="time" value="${esc(s.calTime || "")}"></div>
+      <div class="field"><label for="cal-alarm">Reminder</label><select id="cal-alarm" data-set="calAlarm">${[[0, "None"], [30, "30 min before"], [60, "1 hour before"], [120, "2 hours before"]].map(([v, t]) => `<option value="${v}" ${+s.calAlarm === v ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
+      <p class="small muted num">${ev.length ? `${ev.length} sessions, from ${shortDate(dateOf(ev[0].k))} to ${shortDate(dateOf(last))}: your weekly pattern plus anything booked. Strength sessions carry their exercise list. Clear the start time for all-day entries without reminders.` : "Nothing is planned in that period. Set your weekly pattern or book a session first."}</p>
+      ${canFile ? `<button class="btn primary wide" data-a="cal-share" ${ev.length ? "" : "disabled"}>Share the calendar file</button><button class="btn wide" data-a="cal-open-file" ${ev.length ? "" : "disabled"}>Open it as a calendar file</button>
+        <p class="small muted">Share it and choose Calendar, or open it and tap Add All. It is a snapshot: after changing the plan, send it again. The same sessions are updated on iPhone; some calendar apps add them a second time.</p>`
+      : `<div class="note"><b>Phone app only.</b> A page inside Claude cannot hand a calendar file to your phone. Open the Bench app from your home screen, go to the planner and send it from there.</div>`}
+      <button class="btn ghost wide" data-a="close">Close</button>`);
+  }
+  const calFile = () => { const ev = calEvents((ui.cal || { weeks: 4 }).weeks), time = /^\d\d:\d\d$/.test(S.settings.calTime || "") ? S.settings.calTime : ""; return { n: ev.length, text: buildIcs(ev, time, +S.settings.calAlarm || 0) }; };
+  Object.assign(A, {
+    "cal-open": () => calSheet(),
+    "cal-weeks": (d) => { ui.cal.weeks = +d.w; calSheet(); },
+    "cal-share": () => {
+      const f = calFile(), file = new File([f.text], "bench-comeback-plan.ics", { type: "text/calendar" });
+      const save = () => { const url = URL.createObjectURL(file), a = document.createElement("a"); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); toast("Calendar file saved. Open it to add " + f.n + " sessions"); };
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) return navigator.share({ files: [file], title: "Training plan" }).then(() => toast("Sent. Choose Calendar to add them"), (e) => { if (!e || e.name !== "AbortError") save(); });
+      } catch (e) { /* fall through to a plain download */ }
+      save();
+    },
+    "cal-open-file": () => {
+      const url = URL.createObjectURL(new Blob([calFile().text], { type: "text/calendar" }));
+      const w = window.open(url, "_blank");
+      if (!w) toast("The phone blocked that. Use Share instead");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
   });
 
@@ -1997,9 +2138,10 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   document.addEventListener("change", (ev) => {
     const t = ev.target, k = t.dataset.set;
     if (t.id === "picfile") return loadPics(t);
+    if (t.id === "bw-date") return bodySheet(t.value && t.value <= dkey() ? t.value : dkey());
     if ("rec" in t.dataset) return onRec(t, true);
     if (!k) return;
-    const num = k === "sound" || k === "warmups" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
+    const num = "text" in t.dataset ? t.value : k === "sound" || k === "warmups" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
     if (k.startsWith("max.")) { const m = k.slice(4); if (m === "bench") { if (num > 0) setBenchMax(num); else { t.value = S.settings.max.bench; return; } } else { S.settings.max[m] = num; touchSettings(); } }
     else { S.settings[k] = num; touchSettings(); }
     toast("Saved");
