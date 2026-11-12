@@ -329,6 +329,14 @@ textarea.io.notes { font-family: var(--body); font-size: 16px; font-weight: 400;
 .ivseg i.done { background: var(--ink); }
 .ivseg i.cur { background: var(--signal); }
 
+/* warm-up chips, week strip and weekly pattern */
+.field .lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+.mk .lp { box-shadow: inset 0 0 0 1px currentColor; border-radius: 1px; }
+.wkstrip button { aspect-ratio: auto; padding: 7px 0 8px; gap: 2px; }
+.wkstrip .wd { padding: 0; }
+.patrow { display: grid; grid-template-columns: 38px 1fr; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.patrow .chip { min-height: 32px; padding: 0 9px; font-size: 12.5px; }
+
 </style>
 </head>
 <body>
@@ -608,7 +616,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
-  const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, cycleStart: 0, started: 0, maxHist: [], u: 0 };
+  const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
   const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
   const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
 
@@ -723,6 +731,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   const extraCache = {};
   const itemsOf = (log) => { const base = DAYS[log.day].items; return log.extra && log.extra.length ? [...base, ...log.extra.map((s) => extraCache[s] || (extraCache[s] = { ...parseItem(s), extra: true }))] : base; };
   const nSets = (v) => v.segs.reduce((a, s) => a + s.s, 0);
+  const nSetsText = (n) => n + (n === 1 ? " set" : " sets");
   const setsOf = (n, r) => `${n} ${n === 1 ? "set" : "sets"} of ${r}`;
 
   function summary(v) {
@@ -920,11 +929,13 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   /* planning: how long a session takes = sets x (about 40 s of work + the rest) + a minute to set up each exercise */
   function estimate(day, log) {
     let sec = 0, opt = 0;
-    (log ? itemsOf(log) : day.items).forEach((it, i) => {
+    const items = log ? itemsOf(log) : day.items;
+    items.forEach((it, i) => {
       const st = log ? log.items[i] : null, v = variant(it, st), e = EX[v.ex];
       const left = st ? st.sets.filter((s) => !s.d).length : nSets(v);
       if (!left) return;
-      const t = e.timed ? v.segs[0].v * 60 : left * (40 + (it.ss ? 15 : restFor(v.ex))) + 60;
+      const warm = !e.timed && (!st || !st.sets.some((s) => s.d)) && warmFirst(items, i, log) ? 180 : 0;
+      const t = e.timed ? v.segs[0].v * 60 : left * (40 + (it.ss ? 15 : restFor(v.ex))) + 60 + warm;
       if (log ? skipToday(log, it, st) : e.optional) opt += t; else sec += t;
     });
     return { min: Math.round(sec / 60), opt: Math.round(opt / 60) };
@@ -1008,6 +1019,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     </div></section><div class="wrap stack" style="padding-top:16px">`;
     if (cur) h += `<div class="card stack"><p class="eyebrow">In progress</p><h2>${esc(dayTitle(DAYS[cur.day]))}</h2><p class="muted small">${logSets(cur)} sets logged · started ${new Date(cur.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · ≈ ${estimate(DAYS[cur.day], cur).min} min left</p><button class="btn gold wide" data-a="resume">Resume workout</button></div>`;
     h += todayExtras();
+    h += weekCard();
     if (next && !(cur && cur.day === next.id)) h += `<div class="card stack"><div class="row"><div class="grow"><p class="eyebrow">Next up</p><h2>${esc(next.name)}</h2></div><span class="pill">${estText(next)}</span></div>
       ${planList(next)}
       <p class="small muted">${estNote(next)}</p>
@@ -1129,6 +1141,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         <div class="field"><label for="s-rb">Rest, base lifts</label><select id="s-rb" data-set="restBase">${[120, 150, 180, 240, 300].map((v) => `<option value="${v}" ${s.restBase === v ? "selected" : ""}>${clock(v)}</option>`).join("")}</select></div>
         <div class="field"><label for="s-ra">Rest, accessories</label><select id="s-ra" data-set="restAcc">${[60, 75, 90, 120].map((v) => `<option value="${v}" ${s.restAcc === v ? "selected" : ""}>${clock(v)}</option>`).join("")}</select></div>
         <div class="field"><label for="s-rd">Round weights to</label><select id="s-rd" data-set="round">${[1.25, 2.5, 5].map((v) => `<option value="${v}" ${s.round === v ? "selected" : ""}>${v} kg</option>`).join("")}</select></div>
+        <div class="field"><label for="s-wu">Warm-up sets</label><select id="s-wu" data-set="warmups">${[["1", "Show"], ["", "Hide"]].map(([v, t]) => `<option value="${v}" ${!!s.warmups === !!v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <div class="field"><label for="s-snd">Sound when rest ends</label><select id="s-snd" data-set="sound">${[["1", "On"], ["", "Off"]].map(([v, t]) => `<option value="${v}" ${!!s.sound === !!v ? "selected" : ""}>${t}</option>`).join("")}</select></div></div></div>
       ${window.claude ? "" : `<div class="card stack"><h2>Exercise pictures</h2><p class="small muted">${Object.keys(PIC).length ? Object.keys(PIC).length + " pictures from your trainer sheets are loaded and kept on this phone." : "Every exercise has a drawing or a photo built in. If you prefer the anatomical pictures from your trainer sheets for the exercises that have one, choose the file “Bench Comeback pictures.json” from your OneDrive. They are stored on this phone only."}</p><input class="io-file" id="picfile" type="file" accept=".json,application/json" aria-label="Pictures file">${Object.keys(PIC).length ? `<button class="btn sm ghost danger" data-a="pics-clear">Remove the pictures</button>` : ""}</div>`}
       <div class="card stack"><div class="row"><h2 class="grow">Your data</h2>${syncBadge()}</div>
@@ -1213,6 +1226,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     sub.push(`Rest ${clock(restFor(v.ex))} between sets`);
     h += `<div class="target"><b class="num">${esc(big)}</b>${sub.filter(Boolean).map((s) => `<span>${esc(s)}</span>`).join("")}
       ${last ? `<span>Last time, ${shortDate(last.t)}: ${esc(last.sets.map((s) => (s.w ? fmt(s.w) + "×" : "") + s.r).join(", "))}</span>` : e.old && v.segs.some((s) => s.k === "own") ? `<span>Starting suggestion from your old ${fmt(e.old)} kg</span>` : ""}</div>`;
+    h += warmupBlock(log, day.items, i, st, v);
     // sets
     const stepW = e.eq === "db" || e.eq === "plate" ? 1 : S.settings.round;
     h += `<div class="sets"><div class="hdr"><span></span><span>kg</span><span>reps</span><span></span></div>${st.sets.map((s, si) => {
@@ -1368,7 +1382,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   function openSess(type, id) { ui.sel = { type, id }; closeSheet(); go("session"); window.scrollTo(0, 0); }
   function entryRow(e) {
     const d = new Date(e.t), dd = `<span class="d">${d.toLocaleDateString("en-GB", { weekday: "short" })} ${d.getDate()}</span>`;
-    if (e.type === "log") { const l = e.log; return `<button data-a="sess" data-type="log" data-id="${l.id}">${dd}<span class="m"><b>${esc(dayTitle(DAYS[l.day]))}</b><span>${logSets(l)} sets · ${Math.round(logVolume(l))} kg · ${mins(l)} min</span></span><span class="go">›</span></button>`; }
+    if (e.type === "log") { const l = e.log; return `<button data-a="sess" data-type="log" data-id="${l.id}">${dd}<span class="m"><b>${esc(dayTitle(DAYS[l.day]))}</b><span>${nSetsText(logSets(l))} · ${Math.round(logVolume(l))} kg · ${mins(l)} min</span></span><span class="go">›</span></button>`; }
     const a = e.act;
     return `<button data-a="sess" data-type="act" data-id="${a.id}">${dd}<span class="m"><b>${esc(actName(a))}</b><span>${esc(actLine(a)) || "logged"}</span></span><span class="go">›</span></button>`;
   }
@@ -1469,7 +1483,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   };
 
   const MORE = {
-    "act-new": (d) => actForm(d.date ? { t: dateOf(d.date) } : null),
+    "act-new": (d) => actForm(d.date || d.kind ? { t: d.date ? dateOf(d.date) : 0, kind: d.kind } : null),
     "act-edit": (d) => { const a = S.acts.list.find((x) => x.id === d.id); if (a) actForm(a); },
     "act-done": (d) => { const a = S.acts.list.find((x) => x.id === d.id); if (a) actForm(a, "done"); },
     "act-del": (d, el) => {
@@ -1537,11 +1551,11 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   };
 
   /* ---------- render + routing ---------- */
-  const VIEWS = { today: viewToday, program: viewProgram, history: viewHistory, session: viewSession, progress: viewProgress, exercises: viewExercises, tools: viewTools, workout: viewWorkout, live: viewLive, interval: viewInterval };
+  const VIEWS = { today: viewToday, program: viewProgram, history: viewHistory, session: viewSession, progress: viewProgress, exercises: viewExercises, tools: viewTools, workout: viewWorkout, live: viewLive, interval: viewInterval, week: viewWeek };
   function render(keepScroll) {
     const y = window.scrollY, v = $("#view");
     v.innerHTML = VIEWS[ui.view]();
-    const tab = { session: "history", exercises: "tools" }[ui.view] || ui.view;
+    const tab = { session: "history", exercises: "tools", week: "today" }[ui.view] || ui.view;
     $(".tabs").hidden = ui.view === "workout" || ui.view === "live" || ui.view === "interval";
     document.querySelectorAll(".tabs a").forEach((a) => a.setAttribute("aria-current", a.dataset.v === tab ? "page" : "false"));
     drawRest();
@@ -1838,6 +1852,112 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     "iv-discard": (d, el) => { if (!el.dataset.sure) { el.dataset.sure = 1; el.textContent = "Tap again to discard"; return; } S.iv = null; saveLocal(); go("today"); },
   });
 
+  /* ---------- warm-up sets: a short ramp before the first heavy barbell lift of each kind in a session ---------- */
+  function warmFirst(items, i, log) {
+    const e = EX[variant(items[i], log && log.items[i]).ex];
+    if (!S.settings.warmups || !e.base || e.eq !== "bb") return false;
+    for (let j = 0; j < i; j++) { const x = EX[variant(items[j], log && log.items[j]).ex]; if (x.base && x.eq === "bb" && x.max === e.max) return false; }
+    return true;
+  }
+  function warmSets(ex, W) {
+    const bar = S.settings.bar, stp = S.settings.round || 2.5, rnd = (x) => Math.round(x / stp) * stp, out = [];
+    const add = (w, reps) => { const prev = out.length ? out[out.length - 1].w : 0; if (w >= bar && w <= W - 5 && w >= prev + 7.5) out.push({ w, r: reps }); };
+    if (EX[ex].max !== "dead") add(bar, 10);
+    add(rnd(W * 0.5), 5); add(rnd(W * 0.7), 3);
+    if (W >= 60) add(rnd(W * 0.85), 2);
+    return out;
+  }
+  function warmupBlock(log, items, i, st, v) {
+    if (!warmFirst(items, i, log)) return "";
+    const W = segW(v.ex, v.segs[0]) ?? (+st.sets[0].w || 0);
+    if (!W) return `<p class="small muted">Enter your working weight in set 1 to see warm-up sets.</p>`;
+    const ws = warmSets(v.ex, W), done = st.wu || [];
+    if (!ws.length) return "";
+    return `<div class="field"><span class="lbl">Warm-up sets, kg × reps. Not counted in the log</span><div class="chips">${ws.map((s, n) => `<button class="chip ${done[n] ? "on" : ""}" data-a="wu" data-i="${i}" data-n="${n}" aria-pressed="${!!done[n]}">${fmt(s.w)} × ${s.r}</button>`).join("")}</div></div>`;
+  }
+
+  /* ---------- week planner: a repeating weekly pattern, plus anything booked for a date, against what was actually done ---------- */
+  const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const PK = { lift: "Strength", bjj: "BJJ", z2: "Zone 2 cardio", iv: "Intervals" };
+  const PKS = { lift: "Strength", bjj: "BJJ", z2: "Zone 2", iv: "Intervals" };
+  const pat = () => ({ lift: [], bjj: [], z2: [], iv: [], ...(S.settings.week || {}) });
+  function weekDays(off) {
+    const ws = weekStart(Date.now()), out = [];
+    for (let i = 0; i < 7; i++) { const d = new Date(ws); d.setDate(d.getDate() + off * 7 + i); out.push(d.getTime()); }
+    return out;
+  }
+  function dayInfo(t, i) {
+    const k = dkey(t), p = pat(), today = dkey();
+    const logs = finished().filter((l) => dkey(l.start) === k);
+    const acts = S.acts.list.filter((a) => !a.planned && dkey(a.t) === k), booked = S.acts.list.filter((a) => a.planned && dkey(a.t) === k);
+    const cardio = acts.some((a) => a.kind !== "bjj");
+    const doneOf = { lift: logs.length > 0, bjj: acts.some((a) => a.kind === "bjj"), z2: cardio, iv: cardio };
+    const past = k < today, counts = !past || (S.settings.weekSet && t >= dayStart(S.settings.weekSet));
+    return { k, t, i, logs, acts, booked, todo: counts ? Object.keys(PK).filter((kind) => p[kind].includes(i) && !doneOf[kind]) : [], past, today: k === today };
+  }
+  // planned strength days take the next unfinished program sessions, in order, starting from today
+  function queueFor(off) {
+    const map = {}, start = nextDay(); if (!start) return map;
+    let idx = PATH.findIndex((d) => d.id === start.id);
+    for (let w = 0; w <= Math.max(0, off); w++) for (const d of weekDays(w).map((t, i) => dayInfo(t, i))) {
+      if (d.past || !d.todo.includes("lift")) continue;
+      while (idx < PATH.length && doneLog(PATH[idx].id)) idx++;
+      if (idx >= PATH.length) return map;
+      map[d.k] = PATH[idx++];
+    }
+    return map;
+  }
+  function weekCard() {
+    const days = weekDays(0).map((t, i) => dayInfo(t, i)), q = queueFor(0), td = days.find((d) => d.today);
+    const cell = (d) => {
+      const marks = [...d.logs.map(() => '<i class="l"></i>'), ...d.acts.map(() => '<i class="o"></i>'), ...d.todo.map((k) => `<i class="${k === "lift" ? "lp" : "p"}"></i>`), ...d.booked.map(() => '<i class="p"></i>')].slice(0, 4).join("");
+      const said = [d.logs.length ? "strength done" : "", d.acts.length ? "other session done" : "", ...d.todo.map((k) => PK[k] + " planned"), d.booked.length ? "booked session" : ""].filter(Boolean).join(", ") || "nothing planned";
+      return `<button class="${d.today ? "today" : ""}" data-a="week-open" aria-label="${WD[d.i]} ${new Date(d.t).getDate()}: ${said}"><span class="wd">${WD[d.i][0]}</span><span>${new Date(d.t).getDate()}</span><span class="mk">${marks}</span></button>`;
+    };
+    const parts = td ? [...td.logs.map(() => "strength done"), ...td.acts.map((a) => actName(a).toLowerCase() + " done"), ...td.todo.map((k) => (k === "lift" ? (q[td.k] ? "strength, " + q[td.k].name : "strength") : k === "bjj" ? "BJJ" : PK[k].toLowerCase())), ...td.booked.map((a) => actName(a).toLowerCase() + ", booked")] : [];
+    return `<div class="card stack"><div class="row"><h2 class="grow">This week</h2><button class="btn sm" data-a="week-open">Planner</button></div>
+      <div class="cal wkstrip">${days.map(cell).join("")}</div>
+      <p class="small muted">Today: ${parts.length ? esc([...new Set(parts)].join(" · ")) : "rest day"}.</p>
+      <p class="small muted legend"><span class="mk"><i class="l"></i></span>strength done <span class="mk"><i class="lp"></i></span>planned <span class="mk"><i class="o"></i></span>other done <span class="mk"><i class="p"></i></span>planned</p></div>`;
+  }
+  function viewWeek() {
+    const off = ui.wk || 0, days = weekDays(off).map((t, i) => dayInfo(t, i)), q = queueFor(off), p = pat();
+    const rows = days.map((d) => {
+      let items = "";
+      for (const l of d.logs) items += `<button data-a="sess" data-type="log" data-id="${l.id}"><span class="m"><b>${esc(dayTitle(DAYS[l.day]))}</b><span>${nSetsText(logSets(l))} · ${mins(l)} min</span></span><span class="pill good">Done</span></button>`;
+      for (const a of d.acts) items += `<button data-a="sess" data-type="act" data-id="${a.id}"><span class="m"><b>${esc(actName(a))}</b><span>${esc(actLine(a)) || "logged"}</span></span><span class="pill good">Done</span></button>`;
+      for (const kind of d.todo) {
+        const qd = kind === "lift" ? q[d.k] : null;
+        const title = kind === "lift" && qd ? "Strength: " + dayTitle(qd) : PK[kind];
+        const sub = d.past ? "Planned, nothing logged" : kind === "lift" ? (qd ? estText(qd) : "") : kind === "z2" ? "30–45 min, easy" : kind === "iv" ? "4 × 4 min hard" : "";
+        const btn = !d.today ? "" : kind === "lift" ? (qd ? `<button class="btn sm primary" data-a="start" data-day="${qd.id}">Start</button>` : "") : kind === "iv" ? `<button class="btn sm primary" data-a="iv-open" data-k="4x4">Timer</button>` : `<button class="btn sm primary" data-a="act-new" data-kind="${kind === "bjj" ? "bjj" : "run"}">Log</button>`;
+        items += `<div><span class="m"><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</span>${d.past ? '<span class="pill">Missed</span>' : btn}</div>`;
+      }
+      if (d.booked.length) items += plannedRows(d.booked);
+      return `<div class="card stack"><div class="row"><h2 class="grow">${new Date(d.t).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</h2>${d.today ? '<span class="pill gold">Today</span>' : ""}<button class="btn sm" data-a="act-new" data-date="${d.k}">Add</button></div>
+        ${items ? `<div class="hist">${items}</div>` : `<p class="small muted">${d.past ? "Nothing logged." : "Rest day."}</p>`}</div>`;
+    }).join("");
+    const count = Object.keys(PK).map((k) => (p[k].length ? p[k].length + " " + { lift: "strength", bjj: "BJJ", z2: "Zone 2", iv: "intervals" }[k] : "")).filter(Boolean).join(", ");
+    const patRows = WD.map((w, i) => `<div class="patrow"><span>${w}</span><div class="chips">${Object.keys(PK).map((k) => `<button class="chip ${p[k].includes(i) ? "on" : ""}" data-a="pat" data-k="${k}" data-i="${i}" aria-pressed="${p[k].includes(i)}">${PKS[k]}</button>`).join("")}</div></div>`).join("");
+    return `<section class="band"><div class="wrap stack"><p class="eyebrow">Week planner · ${shortDate(days[0].t)} to ${shortDate(days[6].t)}</p><h1 class="display">${off === 0 ? "This week" : off === 1 ? "Next week" : off === -1 ? "Last week" : "Week of " + shortDate(days[0].t)}</h1>
+      <div class="grid3"><button class="btn sm" data-a="wk" data-d="-1">‹ Earlier</button><button class="btn sm" data-a="wk" data-d="0" ${off === 0 ? "disabled" : ""}>This week</button><button class="btn sm" data-a="wk" data-d="1">Later ›</button></div></div></section>
+      <div class="wrap stack" style="padding-top:16px">${rows}
+      <div class="card stack"><div><h2>Weekly pattern</h2><p class="small muted">Tap what you normally do on each day. ${S.settings.weekSet ? "" : "This is a starting pattern, so change it to match your week. "}It repeats every week and fills the planner. Strength days take the next program sessions in order.${count ? " Now: " + count + " a week." : ""}</p></div>${patRows}</div>
+      <button class="btn wide" data-a="nav" data-v="today">Back to today</button></div>`;
+  }
+  Object.assign(A, {
+    wu: (d) => { const log = activeLog(); if (!log) return; const st = log.items[d.i]; st.wu = st.wu || []; st.wu[+d.n] = !st.wu[+d.n]; touchLog(log); render(true); },
+    "week-open": () => { ui.wk = 0; go("week"); },
+    wk: (d) => { ui.wk = +d.d === 0 ? 0 : (ui.wk || 0) + +d.d; render(); },
+    pat: (d) => {
+      const p = pat(), i = +d.i, list = p[d.k].slice();
+      const at = list.indexOf(i); if (at >= 0) list.splice(at, 1); else list.push(i);
+      S.settings.week = { ...p, [d.k]: list.sort((a, b) => a - b) };
+      if (!S.settings.weekSet) S.settings.weekSet = Date.now();
+      touchSettings(); render(true);
+    },
+  });
+
   function onSetInput(inp) {
     const log = activeLog(); if (!log) return;
     const i = +inp.dataset.i, si = +inp.dataset.s, f = inp.dataset.f, st = log.items[i], set = st.sets[si];
@@ -1879,7 +1999,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (t.id === "picfile") return loadPics(t);
     if ("rec" in t.dataset) return onRec(t, true);
     if (!k) return;
-    const num = k === "sound" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
+    const num = k === "sound" || k === "warmups" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
     if (k.startsWith("max.")) { const m = k.slice(4); if (m === "bench") { if (num > 0) setBenchMax(num); else { t.value = S.settings.max.bench; return; } } else { S.settings.max[m] = num; touchSettings(); } }
     else { S.settings[k] = num; touchSettings(); }
     toast("Saved");
