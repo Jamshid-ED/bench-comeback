@@ -318,6 +318,17 @@ textarea.io.notes { font-family: var(--body); font-size: 16px; font-weight: 400;
 .zlist i { display: block; width: 8px; height: 8px; border-radius: 2px; }
 .zlist b { color: var(--ink); }
 
+/* interval timer */
+.ivrow { display: grid; grid-template-columns: 1fr 148px; align-items: center; gap: 10px; font-weight: 500; }
+.step b { text-align: center; font-weight: 700; font-size: 16px; }
+.clock.huge { font-size: 88px; }
+.ivcard.work .clock { color: var(--hot); }
+.ivseg { display: flex; gap: 2px; height: 8px; }
+.ivseg i { display: block; min-width: 2px; border-radius: 1px; background: var(--line); }
+.ivseg i.work { background: var(--z2); }
+.ivseg i.done { background: var(--ink); }
+.ivseg i.cur { background: var(--signal); }
+
 </style>
 </head>
 <body>
@@ -598,7 +609,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
   const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, cycleStart: 0, started: 0, maxHist: [], u: 0 };
-  const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null };
+  const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
   const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
 
   function applyLoaded(j) {
@@ -609,6 +620,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (j.body) S.body = j.body;
     if ("active" in j) S.active = j.active;
     if ("live" in j) S.live = j.live;
+    if ("iv" in j) S.iv = j.iv;
   }
   function loadLocal() { try { applyLoaded(JSON.parse(localStorage.getItem(LS) || "null")); } catch (e) { /* storage unavailable */ } }
   function saveLocal() { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { /* storage unavailable */ } }
@@ -867,19 +879,19 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- rest timer + sound ---------- */
   let actx = null;
-  function beep(times = 3) {
+  function beep(times = 3, freq = 880, len = 0.2) {
     if (!S.settings.sound) return;
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
       if (actx.state === "suspended") actx.resume();
       for (let i = 0; i < times; i++) {
-        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + i * 0.28;
-        o.frequency.value = 880; o.connect(g); g.connect(actx.destination);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-        o.start(t); o.stop(t + 0.22);
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + i * (len + 0.08);
+        o.frequency.value = freq; o.connect(g); g.connect(actx.destination);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.start(t); o.stop(t + len + 0.02);
       }
     } catch (e) { /* no audio */ }
-    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* no vibration */ }
+    try { if (len >= 0.2 && navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* no vibration */ }
   }
   function primeAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) { /* no audio */ } }
   function startRest(sec, label) { ui.rest = { end: Date.now() + sec * 1000, total: sec, label, over: 0 }; drawRest(); }
@@ -920,7 +932,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   const estText = (day) => "≈ " + Math.round(estimate(day).min / 5) * 5 + " min";
   const estNote = (day) => { const e = estimate(day); return `About ${Math.round(e.min / 5) * 5} minutes start to finish: warm-up, every set, and rests of ${clock(S.settings.restBase)} on base lifts and ${clock(S.settings.restAcc)} on the rest.${e.opt ? ` Optional cardio adds ${e.opt} minutes.` : ""}`; };
   let wake = null;
-  async function keepAwake() { try { if ((ui.view === "workout" || ui.view === "live") && navigator.wakeLock && document.visibilityState === "visible") wake = await navigator.wakeLock.request("screen"); } catch (e) { /* not granted */ } }
+  async function keepAwake() { try { if ((ui.view === "workout" || ui.view === "live" || ui.view === "interval") && navigator.wakeLock && document.visibilityState === "visible") wake = await navigator.wakeLock.request("screen"); } catch (e) { /* not granted */ } }
 
   /* ---------- small UI pieces ---------- */
   const dayTitle = (d) => (d.phase === "split" ? d.name : d.week.title + " · " + d.name);
@@ -1005,7 +1017,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     h += `<div class="tiles"><div class="tile"><b class="num">${lifts}</b><span>lifting this week</span></div><div class="tile"><b class="num">${bjj}</b><span>BJJ this week</span></div><div class="tile"><b class="num">${fmt(S.settings.max.bench)}</b><span>bench max, kg</span></div></div>
       ${bodyRow()}
       <div class="card stack"><div><h2>Other training</h2><p class="small muted">Running, rowing, assault bike, BJJ or anything else, on any day: log it, book it ahead, or time it live.${cardio.length ? ` This week: ${cardio.length} cardio ${cardio.length === 1 ? "session" : "sessions"}, ${cardioMin} minutes.` : ""}</p></div>
-        <div class="grid2"><button class="btn" data-a="act-new">Log or book a session</button><button class="btn" data-a="start" data-day="free">Free workout</button></div></div>
+        <div class="grid2"><button class="btn" data-a="act-new">Log or book a session</button><button class="btn" data-a="start" data-day="free">Free workout</button></div><button class="btn wide" data-a="iv-open">Interval timer</button></div>
       ${cardioCard()}
       <p class="small muted" style="text-align:center">${syncBadge()}</p></div>`;
     return h;
@@ -1334,6 +1346,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   function todayExtras() {
     let h = "";
     if (S.live) h += `<div class="card stack"><p class="eyebrow">In progress</p><h2>${esc(actName(S.live))}</h2><p class="muted small num">Timer running since ${hm(S.live.start)}</p><button class="btn gold wide" data-a="nav" data-v="live">Open the timer</button></div>`;
+    if (S.iv) h += `<div class="card stack"><p class="eyebrow">In progress</p><h2>${esc(ACT[S.iv.kind])} intervals</h2><p class="muted small num">${esc(ivPlanText(S.iv.plan))}${S.iv.fin ? " · finished, not saved yet" : S.iv.pausedAt ? " · paused" : ""}</p><button class="btn gold wide" data-a="nav" data-v="interval">Open the interval timer</button></div>`;
     const soon = S.acts.list.filter((a) => a.planned && a.t < dayStart(Date.now()) + 8 * 864e5).sort((a, b) => a.t - b.t);
     if (soon.length) h += `<div class="card stack"><h2>Booked</h2><div class="hist">${plannedRows(soon)}</div></div>`;
     return h;
@@ -1473,7 +1486,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       if (!planned && !f.min) return toast("Enter how many minutes it took");
       if (planned && f.date < today) return toast("That date has passed. Save it as done instead");
       const a = saveAct(f, planned), wasLive = ui.af.live;
-      if (wasLive) { S.live = null; saveLocal(); }
+      if (wasLive) { S.live = null; S.iv = null; saveLocal(); }
       closeSheet();
       if (wasLive) go("today");
       else if (ui.view === "session") { if (planned) go("history"); else { ui.sel = { type: "act", id: a.id }; render(true); } }
@@ -1483,7 +1496,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     "af-live": () => {
       const f = readForm();
       if (f.kind === "other" && !f.name) return toast("Give it a name first");
-      if (S.live) return toast("A timed session is already running");
+      if (S.live || S.iv) return toast("A timed session is already running");
       primeAudio();
       S.live = { kind: f.kind, name: f.name, start: Date.now(), target: f.min || 0, planId: ui.af.id || null, note: f.note };
       saveLocal(); closeSheet(); go("live");
@@ -1497,7 +1510,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       <div class="card stack"><h2>Weight loss</h2><p>Food decides most of it. Cardio helps through volume: the Zone 2 minutes plus plenty of walking. Going moderately hard every session (zone 3) tires you without adding much, so keep easy days easy and hard days hard.</p></div>
       <div class="card stack"><h2>Where it goes</h2><p>Easy cardio fits any day, including straight after lifting. Keep intervals away from the day before a heavy bench day or the rep test. Keep one day a week with no training.</p></div>
       <p class="small muted">General training guidance, not medical advice. After a long break, get a check-up before hard intervals if you have any heart or blood-pressure concerns.</p>
-      <button class="btn primary wide" data-a="act-new">Log or book a session</button><button class="btn wide" data-a="close">Close</button>`),
+      <button class="btn primary wide" data-a="iv-open" data-k="4x4">Open the interval timer</button><button class="btn wide" data-a="act-new">Log or book a session</button><button class="btn wide" data-a="close">Close</button>`),
     sess: (d) => openSess(d.type, d.id),
     hday: (d) => { ui.hDay = ui.hDay === d.d ? null : d.d; render(true); },
     hmonth: (d) => { const m = new Date(ui.hMonth); ui.hMonth = new Date(m.getFullYear(), m.getMonth() + +d.d, 1).getTime(); ui.hDay = null; render(true); },
@@ -1524,12 +1537,12 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   };
 
   /* ---------- render + routing ---------- */
-  const VIEWS = { today: viewToday, program: viewProgram, history: viewHistory, session: viewSession, progress: viewProgress, exercises: viewExercises, tools: viewTools, workout: viewWorkout, live: viewLive };
+  const VIEWS = { today: viewToday, program: viewProgram, history: viewHistory, session: viewSession, progress: viewProgress, exercises: viewExercises, tools: viewTools, workout: viewWorkout, live: viewLive, interval: viewInterval };
   function render(keepScroll) {
     const y = window.scrollY, v = $("#view");
     v.innerHTML = VIEWS[ui.view]();
     const tab = { session: "history", exercises: "tools" }[ui.view] || ui.view;
-    $(".tabs").hidden = ui.view === "workout" || ui.view === "live";
+    $(".tabs").hidden = ui.view === "workout" || ui.view === "live" || ui.view === "interval";
     document.querySelectorAll(".tabs a").forEach((a) => a.setAttribute("aria-current", a.dataset.v === tab ? "page" : "false"));
     drawRest();
     if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
@@ -1538,12 +1551,13 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (!VIEWS[view]) view = "today";
     if (view === "workout" && !activeLog()) view = "today";
     if (view === "live" && !S.live) view = "today";
+    if (view === "interval" && !S.iv) view = "today";
     if (view === "session" && !selEntry()) view = "history";
     const same = ui.view === view;
     ui.view = view;
     try { if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view); } catch (e) { location.hash = view; }
     if (view === "workout") { const l = activeLog(); if (ui.open < 0 || itemDone(l.items[ui.open] || { sets: [] })) ui.open = firstOpen(l); keepAwake(); }
-    if (view === "live") keepAwake();
+    if (view === "live" || view === "interval") keepAwake();
     render(same);
   }
 
@@ -1627,7 +1641,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       S.acts = { list: [], u: Date.now() }; push("acts");
       S.body = { list: [], u: Date.now() }; push("body");
       S.settings = { ...JSON.parse(JSON.stringify(DEF)), u: Date.now() }; push("settings");
-      S.active = null; S.live = null; saveLocal(); render(); toast("Everything erased");
+      S.active = null; S.live = null; S.iv = null; saveLocal(); render(); toast("Everything erased");
     },
   };
 
@@ -1715,6 +1729,115 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   });
 
 
+  /* ---------- interval timer: warm-up, rounds of work and rest, cool-down; position is worked out from the clock, so it survives a reload ---------- */
+  const IV_PRESETS = {
+    "4x4": { name: "4 × 4 min", warm: 600, work: 240, rest: 180, rounds: 4, cool: 300 },
+    "3x4": { name: "3 × 4 min, starter", warm: 600, work: 240, rest: 180, rounds: 3, cool: 300 },
+    "10x1": { name: "10 × 1 min", warm: 600, work: 60, rest: 60, rounds: 10, cool: 300 },
+    tabata: { name: "Tabata 8 × 20 s", warm: 300, work: 20, rest: 10, rounds: 8, cool: 180 },
+  };
+  const IV_KINDS = ["abike", "row", "run", "cycle", "ellip", "hiit"];
+  const ivPlanText = (p) => `${p.rounds} × ${clock(p.work)} work, ${clock(p.rest)} rest`;
+  function ivPhases(p) {
+    const a = [];
+    if (p.warm) a.push({ k: "warm", s: p.warm, label: "Warm-up" });
+    for (let i = 1; i <= p.rounds; i++) {
+      a.push({ k: "work", s: p.work, label: `Work ${i} of ${p.rounds}` });
+      if (i < p.rounds && p.rest) a.push({ k: "rest", s: p.rest, label: "Rest" });
+    }
+    if (p.cool) a.push({ k: "cool", s: p.cool, label: "Cool-down" });
+    return a;
+  }
+  const ivReal = (I) => ((I.pausedAt || Date.now()) - I.start - I.paused) / 1000;
+  function ivNow() {
+    const I = S.iv, ph = ivPhases(I.plan), el = ivReal(I) + I.adv, total = ph.reduce((a, x) => a + x.s, 0);
+    let t = 0;
+    for (let i = 0; i < ph.length; i++) { if (el < t + ph[i].s) return { i, ph, cur: ph[i], next: ph[i + 1], left: t + ph[i].s - el, el, total, done: false }; t += ph[i].s; }
+    return { i: ph.length, ph, el: total, total, done: true };
+  }
+  function ivSheet(presetKey) {
+    if (presetKey && IV_PRESETS[presetKey]) ui.iv = { ...(ui.iv || {}), ...IV_PRESETS[presetKey], preset: presetKey };
+    if (!ui.iv) ui.iv = { kind: "abike", ...IV_PRESETS["4x4"], preset: "4x4", ...(S.settings.iv || {}) };
+    if (!ui.iv.kind) ui.iv.kind = "abike";
+    const p = ui.iv, total = ivPhases(p).reduce((a, x) => a + x.s, 0);
+    const row = (f, label, text) => `<div class="ivrow"><span>${label}</span><div class="step"><button data-a="iv-step" data-f="${f}" data-d="-1" aria-label="Less ${label}">−</button><b class="num">${text}</b><button data-a="iv-step" data-f="${f}" data-d="1" aria-label="More ${label}">+</button></div></div>`;
+    sheet(`<h2>Interval timer</h2>
+      <div class="chips">${Object.keys(IV_PRESETS).map((k) => `<button class="chip ${p.preset === k ? "on" : ""}" data-a="iv-preset" data-k="${k}">${IV_PRESETS[k].name}</button>`).join("")}</div>
+      <div class="chips">${IV_KINDS.map((k) => `<button class="chip ${p.kind === k ? "on" : ""}" data-a="iv-kind" data-k="${k}">${ACT[k]}</button>`).join("")}</div>
+      ${row("warm", "Warm-up", clock(p.warm))}${row("work", "Work", clock(p.work))}${row("rest", "Rest", clock(p.rest))}${row("rounds", "Rounds", p.rounds)}${row("cool", "Cool-down", clock(p.cool))}
+      <p class="small muted num">${Math.round(total / 60)} minutes in total, ${fmt(Math.round((p.work * p.rounds) / 6) / 10)} of them hard. Three short beeps count down each change; keep the screen on so you hear them.</p>
+      <button class="btn primary wide" data-a="iv-start">Start</button><button class="btn ghost wide" data-a="close">Cancel</button>`);
+  }
+  function ivView(n) {
+    const I = S.iv, paused = !!I.pausedAt && !I.fin;
+    return {
+      label: n.done ? "Finished" : n.cur.label, clock: n.done ? "0:00" : clock(Math.ceil(n.left)), work: !n.done && n.cur.k === "work",
+      next: n.done ? "Save it to add the session to your log." : n.next ? `Next: ${n.next.label.toLowerCase()}, ${clock(n.next.s)}` : "Last part",
+      tot: `${clock(n.el)} done · ${clock(Math.max(0, n.total - n.el))} left${paused ? " · paused" : ""}`,
+      segs: n.ph.map((x, i) => `<i class="${i < n.i ? "done" : i === n.i ? "cur" : x.k === "work" ? "work" : ""}" style="flex:${x.s}"></i>`).join(""),
+    };
+  }
+  function viewInterval() {
+    const I = S.iv; if (!I) return "";
+    const n = ivNow(), v = ivView(n), paused = !!I.pausedAt && !I.fin;
+    return `<div class="wtop"><div class="wrap"><button class="iconbtn" data-a="nav" data-v="today" aria-label="Back to today">${ICON.back}</button>
+      <div class="ttl"><b>${esc(ACT[I.kind])} intervals</b><span class="num">${esc(ivPlanText(I.plan))}</span></div>
+      <button class="btn gold sm" data-a="iv-finish">Finish</button></div><div class="wprog"></div></div>
+      <div class="wrap stack" style="padding-top:20px"><div class="card stack ivcard ${v.work ? "work" : ""}" id="iv-card" style="text-align:center">
+        <p class="eyebrow" id="iv-label">${esc(v.label)}</p><div class="clock huge" id="iv-clock">${v.clock}</div><p class="small muted" id="iv-next">${esc(v.next)}</p>
+        <div class="ivseg" id="iv-segs" aria-hidden="true">${v.segs}</div><p class="small muted num" id="iv-tot">${v.tot}</p></div>
+      ${I.fin ? "" : `<div class="grid2"><button class="btn" data-a="iv-pause">${paused ? "Resume" : "Pause"}</button><button class="btn" data-a="iv-skip">Skip this part</button></div>`}
+      <button class="btn gold wide" data-a="iv-finish">${I.fin ? "Save session" : "Finish early and save"}</button><button class="btn ghost wide sm danger" data-a="iv-discard">Discard</button></div>`;
+  }
+  function ivDraw(n) {
+    const lab = $("#iv-label"); if (!lab) return;
+    const v = ivView(n || ivNow());
+    lab.textContent = v.label; $("#iv-clock").textContent = v.clock; $("#iv-next").textContent = v.next; $("#iv-tot").textContent = v.tot;
+    $("#iv-card").classList.toggle("work", v.work);
+    const s = $("#iv-segs"); if (s.dataset.i !== String((n || {}).i)) { s.innerHTML = v.segs; s.dataset.i = String((n || {}).i); }
+  }
+  function ivTick() {
+    const I = S.iv;
+    if (I.fin || I.pausedAt) return;
+    const n = ivNow();
+    if (n.done) { I.fin = true; I.pausedAt = Date.now(); saveLocal(); beep(3, 880, 0.35); if (ui.view === "interval") render(true); return; }
+    if (I.at !== n.i) { I.at = n.i; saveLocal(); beep(n.cur.k === "work" ? 2 : 1, n.cur.k === "work" ? 1040 : 520, 0.3); }
+    const sec = Math.ceil(n.left);
+    if (sec <= 3 && ui.ivB !== n.i + ":" + sec) { ui.ivB = n.i + ":" + sec; beep(1, 700, 0.08); }
+    if (ui.view === "interval") ivDraw(n);
+  }
+  Object.assign(A, {
+    "iv-open": (d) => { if (S.iv) { closeSheet(); return go("interval"); } ivSheet(d.k); },
+    "iv-preset": (d) => ivSheet(d.k),
+    "iv-kind": (d) => { ui.iv.kind = d.k; ivSheet(); },
+    "iv-step": (d) => {
+      const p = ui.iv, f = d.f, dir = +d.d;
+      if (f === "rounds") p.rounds = Math.min(30, Math.max(1, p.rounds + dir));
+      else if (f === "warm" || f === "cool") p[f] = Math.min(1800, Math.max(0, p[f] + dir * 60));
+      else { const st = p[f] + (dir < 0 ? -1 : 0) < 60 ? 5 : 15; p[f] = Math.min(1200, Math.max(f === "work" ? 5 : 0, p[f] + dir * st)); }
+      p.preset = "";
+      ivSheet();
+    },
+    "iv-start": () => {
+      if (S.live || S.iv) return toast("A timed session is already running");
+      primeAudio();
+      const p = ui.iv, plan = { warm: p.warm, work: p.work, rest: p.rest, rounds: p.rounds, cool: p.cool };
+      S.settings.iv = { ...plan, kind: p.kind, preset: p.preset }; touchSettings();
+      S.iv = { kind: p.kind, plan, start: Date.now(), paused: 0, pausedAt: 0, adv: 0, at: 0, fin: false };
+      saveLocal(); closeSheet(); beep(1, plan.warm ? 520 : 1040, 0.3); go("interval");
+    },
+    "iv-pause": () => { const I = S.iv; if (!I || I.fin) return; if (I.pausedAt) { I.paused += Date.now() - I.pausedAt; I.pausedAt = 0; } else I.pausedAt = Date.now(); saveLocal(); render(true); },
+    "iv-skip": () => { const I = S.iv; if (!I || I.fin) return; const n = ivNow(); if (!n.done) { I.adv += n.left; saveLocal(); } if (I.pausedAt) render(true); else ivTick(); },
+    "iv-finish": () => {
+      const I = S.iv; if (!I) return;
+      if (!I.pausedAt) I.pausedAt = Date.now();
+      saveLocal();
+      if (ui.view === "interval") render(true);
+      actForm({ kind: I.kind, min: Math.max(1, Math.round(ivReal(I) / 60)), note: "Intervals: " + ivPlanText(I.plan), t: Date.now() }, "live");
+    },
+    "iv-discard": (d, el) => { if (!el.dataset.sure) { el.dataset.sure = 1; el.textContent = "Tap again to discard"; return; } S.iv = null; saveLocal(); go("today"); },
+  });
+
   function onSetInput(inp) {
     const log = activeLog(); if (!log) return;
     const i = +inp.dataset.i, si = +inp.dataset.s, f = inp.dataset.f, st = log.items[i], set = st.sets[si];
@@ -1768,6 +1891,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   setInterval(() => {
     if (ui.rest || ui.view === "workout") drawRest();
+    if (S.iv) ivTick();
     if (S.live) {
       const sec = (Date.now() - S.live.start) / 1000, n = $("#live-clock"), b = $("#live-bar");
       if (n) n.textContent = clock(sec);
@@ -1791,7 +1915,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   // installed on a phone, outside Claude: ask the browser to keep this app's storage
   if (!window.claude) { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* not supported */ } }
   const h0 = location.hash.slice(1);
-  ui.view = !VIEWS[h0] || (h0 === "workout" && !activeLog()) || (h0 === "live" && !S.live) ? "today" : h0 === "session" ? "history" : h0;
+  ui.view = !VIEWS[h0] || (h0 === "workout" && !activeLog()) || (h0 === "live" && !S.live) || (h0 === "interval" && !S.iv) ? "today" : h0 === "session" ? "history" : h0;
   if (ui.view === "workout") ui.open = firstOpen(activeLog());
   render();
   initRemote();
