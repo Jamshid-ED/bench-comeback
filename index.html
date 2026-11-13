@@ -345,6 +345,8 @@ textarea.io.notes { font-family: var(--body); font-size: 16px; font-weight: 400;
 .legend .sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 8px; }
 .legend .sw:first-child { margin-left: 0; }
 
+.target .why { color: var(--ink); font-weight: 600; }
+
 </style>
 </head>
 <body>
@@ -624,7 +626,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
-  const DEF = { max: { bench: 80, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
+  const DEF = { max: { bench: 80, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, auto: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
   const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
   const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
 
@@ -770,12 +772,61 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     const kg = old * Math.min(1, 0.6 + 0.1 * weeks);
     return kg < 20 ? Math.max(1, Math.round(kg)) : Math.round(kg / 2.5) * 2.5;
   }
-  function defaultRows(v, exceptId) {
+  /* ---------- auto-adjust: accessory weights follow what was logged. Program percentages are never touched ---------- */
+  const PAIN = /pain|hurt|sore|tight|tweak|sharp|ache|strain|бол/i;
+  function stepFor(ex, w) { const q = EX[ex].eq; return q === "db" || q === "plate" ? (w < 10 ? 1 : 2) : q === "bb" ? 2.5 : w < 20 ? 2.5 : 5; }
+  // the last sessions in which this exercise was done with a weight, newest first
+  function exHistory(ex, exceptId, n) {
+    const out = [];
+    for (const l of finished()) {
+      if (l.id === exceptId) continue;
+      const items = itemsOf(l);
+      for (const k in l.items) {
+        const st = l.items[k]; if (st.ex !== ex) continue;
+        const v = items[k] ? variant(items[k], st) : null;
+        const sets = st.sets.map((s, si) => ({ ...s, target: (v && planRow(v, si) ? planRow(v, si).r : 0) || +s.r })).filter((s) => s.d && +s.w > 0 && +s.r > 0);
+        if (!sets.length) continue;
+        const top = Math.max(...sets.map((s) => +s.w)), atTop = sets.filter((s) => +s.w === top);
+        out.push({ t: l.start, top, targetR: atTop[0].target, topReps: Math.min(...atTop.map((s) => +s.r)), allAtTop: atTop.length === sets.length,
+          missed: atTop.some((s) => +s.r < s.target), doneAll: sets.length >= (v ? nSets(v) : sets.length), note: st.note || "" });
+        break;
+      }
+      if (out.length >= n) break;
+    }
+    return out;
+  }
+  function autoWeight(ex, seg, exceptId, rec) {
+    if (!S.settings.auto) return null;
+    const h = exHistory(ex, exceptId, 2); if (!h.length) return null;
+    const a = h[0], b = h[1], kg = (x) => fmt(x) + " kg";
+    let w = a.top, why;
+    if (Math.abs(seg.r - a.targetR) >= 3) {
+      const e1 = e1rm(a.top, Math.min(a.targetR, a.topReps)), raw = seg.r <= 10 ? (e1 * (37 - seg.r)) / 36 : e1 / (1 + seg.r / 30), st = stepFor(ex, raw);
+      w = Math.max(st, Math.round(raw / st) * st);
+      why = w === a.top ? `Same ${kg(w)} as last time, though the reps change from ${a.targetR} to ${seg.r}.` : `Reps change from ${a.targetR} to ${seg.r}, so ${kg(a.top)} becomes ${kg(w)}.`;
+      return { w, why };
+    }
+    const st = stepFor(ex, a.top), twice = b && b.top === a.top && Math.abs(b.targetR - a.targetR) < 3;
+    if (PAIN.test(a.note)) why = `Held at ${kg(w)}: your last note says "${a.note.slice(0, 60)}".`;
+    else if (a.missed && twice && b.missed) { w = Math.max(st, a.top - st); why = `Short of the reps at ${kg(a.top)} two sessions running: down to ${kg(w)}.`; }
+    else if (a.missed) why = `Held at ${kg(w)}: last time you were short of the target reps.`;
+    else if (!a.allAtTop) why = `All sets at ${kg(w)}, your top weight last time.`;
+    else if (twice && !b.missed && b.allAtTop && a.doneAll && b.doneAll) {
+      if (recBand(rec) === "red") why = `Held at ${kg(w)}: recovery is red today, so no increase.`;
+      else { w = a.top + st; why = `Every rep at ${kg(a.top)} two sessions running: up to ${kg(w)}.`; }
+    } else why = a.doneAll ? `Same as last time, ${kg(w)}. One more clean session and it goes up.` : `Same as last time, ${kg(w)}.`;
+    return { w, why };
+  }
+  let lastWhy = "";
+  function defaultRows(v, exceptId, rec) {
     const rows = [], last = lastSets(v.ex, exceptId), sug = suggest(v.ex);
+    const free = (seg) => seg.k === "own" || (seg.k === "pct" && segW(v.ex, seg) == null);
+    const au = v.segs.length === 1 && free(v.segs[0]) ? autoWeight(v.ex, v.segs[0], exceptId, rec) : null;
+    lastWhy = au ? au.why : "";
     let i = 0;
     for (const seg of v.segs) for (let n = 0; n < seg.s; n++, i++) {
       let w = segW(v.ex, seg);
-      if (seg.k === "own") w = last ? (last.sets[i] || last.sets[last.sets.length - 1]).w : sug;
+      if (free(seg)) w = au ? au.w : last ? (last.sets[i] || last.sets[last.sets.length - 1]).w : seg.k === "own" ? sug : null;
       if (seg.k === "bw") w = last && last.sets[i] && last.sets[i].w ? last.sets[i].w : null;
       rows.push({ w: w == null || w === "" ? "" : w, r: seg.k === "test" || seg.k === "time" ? "" : seg.r, d: false });
     }
@@ -823,7 +874,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     const log = { id, day: dayId, date: dkey(), start: Date.now(), end: 0, items: {}, u: 0 };
     const checkedIn = recOn(dkey());
     if (checkedIn && checkedIn.rec != null) log.rec = checkedIn.rec;
-    day.items.forEach((it, i) => { log.items[i] = { ex: it.ex, alt: false, sets: defaultRows(it, id) }; });
+    day.items.forEach((it, i) => { const sets = defaultRows(it, id, log.rec); log.items[i] = { ex: it.ex, alt: false, sets }; if (lastWhy) log.items[i].why = lastWhy; });
     S.logs[id] = log; S.active = id;
     if (!S.settings.started) { S.settings.started = Date.now(); touchSettings(); }
     touchLog(log);
@@ -1152,6 +1203,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         <div class="field"><label for="s-rb">Rest, base lifts</label><select id="s-rb" data-set="restBase">${[120, 150, 180, 240, 300].map((v) => `<option value="${v}" ${s.restBase === v ? "selected" : ""}>${clock(v)}</option>`).join("")}</select></div>
         <div class="field"><label for="s-ra">Rest, accessories</label><select id="s-ra" data-set="restAcc">${[60, 75, 90, 120].map((v) => `<option value="${v}" ${s.restAcc === v ? "selected" : ""}>${clock(v)}</option>`).join("")}</select></div>
         <div class="field"><label for="s-rd">Round weights to</label><select id="s-rd" data-set="round">${[1.25, 2.5, 5].map((v) => `<option value="${v}" ${s.round === v ? "selected" : ""}>${v} kg</option>`).join("")}</select></div>
+        <div class="field"><label for="s-auto">Accessory weights</label><select id="s-auto" data-set="auto">${[["1", "Adjust for me"], ["", "Copy last time"]].map(([v, t]) => `<option value="${v}" ${!!s.auto === !!v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <div class="field"><label for="s-wu">Warm-up sets</label><select id="s-wu" data-set="warmups">${[["1", "Show"], ["", "Hide"]].map(([v, t]) => `<option value="${v}" ${!!s.warmups === !!v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
         <div class="field"><label for="s-snd">Sound when rest ends</label><select id="s-snd" data-set="sound">${[["1", "On"], ["", "Off"]].map(([v, t]) => `<option value="${v}" ${!!s.sound === !!v ? "selected" : ""}>${t}</option>`).join("")}</select></div></div></div>
       ${window.claude ? "" : `<div class="card stack"><h2>Exercise pictures</h2><p class="small muted">${Object.keys(PIC).length ? Object.keys(PIC).length + " pictures from your trainer sheets are loaded and kept on this phone." : "Every exercise has a drawing or a photo built in. If you prefer the anatomical pictures from your trainer sheets for the exercises that have one, choose the file “Bench Comeback pictures.json” from your OneDrive. They are stored on this phone only."}</p><input class="io-file" id="picfile" type="file" accept=".json,application/json" aria-label="Pictures file">${Object.keys(PIC).length ? `<button class="btn sm ghost danger" data-a="pics-clear">Remove the pictures</button>` : ""}</div>`}
@@ -1236,6 +1288,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     }
     sub.push(`Rest ${clock(restFor(v.ex))} between sets`);
     h += `<div class="target"><b class="num">${esc(big)}</b>${sub.filter(Boolean).map((s) => `<span>${esc(s)}</span>`).join("")}
+      ${st.why ? `<span class="why">${esc(st.why)}</span>` : ""}
       ${last ? `<span>Last time, ${shortDate(last.t)}: ${esc(last.sets.map((s) => (s.w ? fmt(s.w) + "×" : "") + s.r).join(", "))}</span>` : e.old && v.segs.some((s) => s.k === "own") ? `<span>Starting suggestion from your old ${fmt(e.old)} kg</span>` : ""}</div>`;
     h += warmupBlock(log, day.items, i, st, v);
     // sets
@@ -1548,7 +1601,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       const e = EX[d.ex], spec = e.timed ? (d.ex === "cardio" ? "30min" : "10min") : (e.eq === "bw" ? "BW" : "K") + "x10x3";
       log.extra = [...(log.extra || []), d.ex + "@" + spec];
       const items = itemsOf(log), i = items.length - 1;
-      log.items[i] = { ex: d.ex, alt: false, sets: defaultRows(items[i], log.id) };
+      log.items[i] = { ex: d.ex, alt: false, sets: defaultRows(items[i], log.id, log.rec) };
+      if (lastWhy) log.items[i].why = lastWhy;
       touchLog(log); ui.open = i; closeSheet(); render(true);
       const n = $("#ex-" + i); if (n) n.scrollIntoView({ block: "center" });
     },
@@ -1607,7 +1661,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     },
     addset: (d) => { const log = activeLog(), st = log.items[d.i], l = st.sets[st.sets.length - 1] || { w: "", r: "" }; st.sets.push({ w: l.w, r: l.r, d: false }); touchLog(log); render(true); },
     rmset: (d) => { const log = activeLog(), st = log.items[d.i]; if (st.sets.length > 1) st.sets.pop(); touchLog(log); render(true); },
-    alt: (d) => { const log = activeLog(), it = itemsOf(log)[d.i], st = log.items[d.i]; st.alt = !st.alt; delete st.note; const v = variant(it, st); st.ex = v.ex; st.sets = defaultRows(v, log.id); touchLog(log); render(true); },
+    alt: (d) => { const log = activeLog(), it = itemsOf(log)[d.i], st = log.items[d.i]; st.alt = !st.alt; delete st.note; const v = variant(it, st); st.ex = v.ex; st.sets = defaultRows(v, log.id, log.rec); if (lastWhy) st.why = lastWhy; else delete st.why; touchLog(log); render(true); },
     tm: (d) => {
       primeAudio();
       const log = activeLog(), i = +d.i, seg = variant(itemsOf(log)[i], log.items[i]).segs[0];
@@ -2142,7 +2196,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (t.id === "bw-date") return bodySheet(t.value && t.value <= dkey() ? t.value : dkey());
     if ("rec" in t.dataset) return onRec(t, true);
     if (!k) return;
-    const num = "text" in t.dataset ? t.value : k === "sound" || k === "warmups" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
+    const num = "text" in t.dataset ? t.value : k === "sound" || k === "warmups" || k === "auto" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
     if (k.startsWith("max.")) { const m = k.slice(4); if (m === "bench") { if (num > 0) setBenchMax(num); else { t.value = S.settings.max.bench; return; } } else { S.settings.max[m] = num; touchSettings(); } }
     else { S.settings[k] = num; touchSettings(); }
     toast("Saved");
