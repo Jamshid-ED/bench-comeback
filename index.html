@@ -477,17 +477,17 @@ const RAMP = [
   { id: "r1", title: "Comeback 1", tag: "Full body, wake everything up", days: [
     ["Full body A", "squat@Kx10x2 / legext@Kx12x2", "bench@50x8x3", "latpull@Kx10x2", "dbpress@Kx10x2", "curl@Kx10x2", "abs@BWx20x2"],
     ["Full body B", "legext@Kx12x2", "bench@50x8x3", "row@Kx10x2", "lateral@Kx10x2", "pushdown@Kx10x2", "abs@BWx20x2"],
-    ["Full body C", "squat@Kx10x2 / legext@Kx12x2", "bench@55x6x3", "latpull@Kx10x2", "fly@Kx10x2", "hammer@Kx10x2", "abs@BWx20x2"],
+    ["Full body C", "squat@Kx10x2 / legext@Kx12x2", "bench@70x6x3", "latpull@Kx10x2", "fly@Kx10x2", "hammer@Kx10x2", "abs@BWx20x2"],
   ] },
   { id: "r2", title: "Comeback 2", tag: "Full body, find the groove", days: [
-    ["Full body A", "squat@Kx10x3 / legext@Kx15x3", "bench@60x6x4", "row@Kx10x3", "ohp@35x6x3", "curl@Kx10x3", "abs@Kx25x3"],
-    ["Full body B", "dead@Kx8x3 # Light. This is technique practice", "bench@55x8x3", "latpull@Kx10x3", "lateral@Kx10x3", "pushdown@Kx10x3", "abs@Kx25x3"],
-    ["Full body C", "squat@Kx8x3 / legext@Kx15x3", "bench@65x5x4", "incline@50x6x2", "row@Kx10x3", "hammer@Kx10x3", "abs@Kx25x3"],
+    ["Full body A", "squat@Kx10x3 / legext@Kx15x3", "bench@70x6x4", "row@Kx10x3", "ohp@35x6x3", "curl@Kx10x3", "abs@Kx25x3"],
+    ["Full body B", "dead@Kx8x3 # Light. This is technique practice", "bench@65x8x3", "latpull@Kx10x3", "lateral@Kx10x3", "pushdown@Kx10x3", "abs@Kx25x3"],
+    ["Full body C", "squat@Kx8x3 / legext@Kx15x3", "bench@75x5x4", "incline@55x6x2", "row@Kx10x3", "hammer@Kx10x3", "abs@Kx25x3"],
   ] },
   { id: "r3", title: "Comeback 3", tag: "The program's split, then the test", days: [
-    ["Legs + bench", "squat@Kx8x4 / legext@Kx15x4", "bench@70x5x4", "fly@Kx10x3", "curl@Kx10x4", "abs@Kx30x3"],
+    ["Legs + bench", "squat@Kx8x4 / legext@Kx15x4", "bench@75x6x4", "fly@Kx10x3", "curl@Kx10x4", "abs@Kx30x3"],
     ["Back + shoulders", "dead@Kx8x4", "ohp@35x6x4", "pullupn@BWx5x3 +", "row@Kx10x4", "dbrow@Kx10x3", "abs@Kx30x3"],
-    ["Test day", "bench@40x5x1;55x3x1;65x2x1 # Warm-up ladder", "bench@T80 # One set. Stop when the next rep would be a grind", "incline@50x6x2", "lateral@Kx10x3", "pushdown@Kx10x3", "rcurl@Kx8x3"],
+    ["Test day", "bench@40x5x1;55x3x1;70x1x1 # Warm-up ladder", "bench@T80 # One set. Stop when the next rep would be a grind", "incline@55x6x2", "lateral@Kx10x3", "pushdown@Kx10x3", "rcurl@Kx8x3"],
   ] },
 ];
 
@@ -624,7 +624,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
-  const DEF = { max: { bench: 75, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
+  const DEF = { max: { bench: 80, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
   const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
   const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
 
@@ -870,7 +870,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     }
     log.end = Date.now(); S.active = null; ui.rest = null; drawRest();
     touchLog(log);
-    const mins = Math.max(1, Math.round((log.end - log.start) / 60000)), vol = logVolume(log);
+    const mins = Math.max(1, Math.round((endOf(log) - log.start) / 60000)), vol = logVolume(log);
     go("today");
     sheet(`<p class="eyebrow">${esc(dayTitle(DAYS[log.day]))}</p><h2>Session logged</h2>
       <div class="tiles"><div class="tile"><b class="num">${mins}</b><span>minutes</span></div><div class="tile"><b class="num">${logSets(log)}</b><span>sets</span></div><div class="tile"><b class="num">${vol >= 1000 ? fmt(Math.round(vol / 100) / 10) + " t" : Math.round(vol)}</b><span>${vol >= 1000 ? "lifted" : "kg lifted"}</span></div></div>
@@ -1139,7 +1139,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         <div class="grid3"><div class="field"><label for="mx-bench">Bench, kg</label><input id="mx-bench" data-set="max.bench" type="number" inputmode="decimal" step="2.5" value="${s.max.bench || ""}"></div>
         <div class="field"><label for="mx-squat">Squat, kg</label><input id="mx-squat" data-set="max.squat" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.squat || ""}"></div>
         <div class="field"><label for="mx-dead">Deadlift, kg</label><input id="mx-dead" data-set="max.dead" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.dead || ""}"></div></div>
-        <p class="small muted">Bench starts at 75 kg, a cautious guess at about 70% of your old 105 after the layoff. The rep test at the end of comeback week 3 replaces it. With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
+        <p class="small muted">Bench is set from your first two sessions: 70 kg for 4 with two or three reps left points to a max a little over 80 kg, so the comeback weeks use 80. The rep test at the end of comeback week 3 replaces it. With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
         <div class="field"><label for="mx-best">Old best bench, kg (the line on the chart)</label><input id="mx-best" data-set="best" type="number" inputmode="decimal" step="2.5" value="${s.best}"></div></div>
       <div class="card stack"><h2>One-rep max calculator</h2><div class="grid2"><div class="field"><label for="c-w">Weight, kg</label><input id="c-w" data-calc="w" type="number" inputmode="decimal" step="2.5" value="${c.w}"></div><div class="field"><label for="c-r">Reps</label><input id="c-r" data-calc="r" type="number" inputmode="numeric" step="1" value="${c.r}"></div></div>
         <div id="calc-out">${calcOut()}</div></div>
@@ -1302,7 +1302,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   const dateOf = (key) => { const [y, m, d] = key.split("-").map(Number); return new Date(y, m - 1, d, 12).getTime(); };
   const longDate = (t) => new Date(t).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const hm = (t) => new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const mins = (l) => Math.max(1, Math.round((l.end - l.start) / 60000));
+  const endOf = (l) => { const t = lastSetT(l); return t && l.end - t > 20 * 60000 ? t + 120000 : l.end; };
+  const mins = (l) => Math.max(1, Math.round((endOf(l) - l.start) / 60000));
   function pace(a) { let m = Math.floor(a.min / a.km), s = Math.round((a.min / a.km - m) * 60); if (s === 60) { m++; s = 0; } return m + ":" + pad2(s) + " /km"; }
   const actLine = (a) => [a.min ? a.min + " min" : "", a.km ? fmt(a.km) + " km" : "", a.km && a.min ? pace(a) : "", a.z && a.z[1] ? "Z2 " + a.z[1] + " min" : "", a.z && a.z[3] + a.z[4] ? "Z4–5 " + (a.z[3] + a.z[4]) + " min" : "", a.rpe ? "effort " + a.rpe + "/10" : ""].filter(Boolean).join(" · ");
 
@@ -1477,7 +1478,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         ${st.note ? `<p class="small"><b>Note:</b> ${esc(st.note)}</p>` : ""}
         ${prev ? `<p class="small muted num">Time before, ${shortDate(prev.t)}: ${esc(setsText(prev.sets))}${tw && pw && tw !== pw ? ` · top set ${tw > pw ? "+" : "−"}${fmt(Math.abs(tw - pw))} kg` : ""}</p>` : ""}</div>`;
     });
-    return `${top(dayTitle(DAYS[l.day]), longDate(l.start) + " · " + hm(l.start) + "–" + hm(l.end))}<div class="wrap stack" style="padding-top:14px">
+    return `${top(dayTitle(DAYS[l.day]), longDate(l.start) + " · " + hm(l.start) + "–" + hm(endOf(l)))}<div class="wrap stack" style="padding-top:14px">
       <div class="tiles"><div class="tile"><b class="num">${mins(l)}</b><span>minutes</span></div><div class="tile"><b class="num">${logSets(l)}</b><span>sets</span></div><div class="tile"><b class="num">${vol >= 1000 ? (vol / 1000).toFixed(1) : Math.round(vol)}</b><span>${vol >= 1000 ? "tonnes lifted" : "kg lifted"}</span></div></div>
       ${l.rec != null ? `<p class="small muted">Whoop recovery that day: <span class="pill ${recBand(l.rec)}">${l.rec}%</span></p>` : ""}
       ${l.note ? `<div class="card stack"><h2>Session notes</h2><p>${esc(l.note)}</p></div>` : ""}
@@ -2174,6 +2175,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   /* ---------- boot ---------- */
   loadLocal();
   adoptOrphans();
+  if (!S.settings.m80) { const was = S.settings.max.bench; S.settings.m80 = 1; if (S.settings.u) { if (was === 75) setBenchMax(80); else touchSettings(); } }
   // installed on a phone, outside Claude: ask the browser to keep this app's storage
   if (!window.claude) { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* not supported */ } }
   const h0 = location.hash.slice(1);
