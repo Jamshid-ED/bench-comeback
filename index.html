@@ -130,7 +130,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
 .ex { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .ex.ssn { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -13px; border-top-style: dashed; }
-.ex > button.hd { width: 100%; display: flex; gap: 12px; align-items: center; padding: 13px 14px; text-align: left; }
+.ex .hdrow { display: flex; align-items: stretch; }
+.ex .hdrow > button.hd { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; padding: 13px 14px; text-align: left; }
+.ex .hdrow > button.hd:not(:last-child) { padding-right: 4px; }
+.ex .grip { flex: none; width: 46px; display: grid; place-items: center; color: var(--ink-2); touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.ex .grip svg { width: 20px; height: 20px; fill: currentColor; stroke: none; pointer-events: none; }
+.sorting { user-select: none; -webkit-user-select: none; }
+.sorting .ex .bd { display: none; }
+.sorting .ex:not(.drag) { transition: transform .15s ease; }
+.ex.drag { position: relative; z-index: 5; border-color: var(--ink-2); box-shadow: 0 10px 28px rgba(0, 0, 0, .22); }
+.ex.drag .grip { cursor: grabbing; color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .sorting .ex:not(.drag) { transition: none; } }
 .ex .ix { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; font-weight: 600; font-size: 13px; background: var(--surface-2); color: var(--ink-2); flex: none; font-variant-numeric: tabular-nums; }
 .ex.done .ix { background: var(--good-bg); color: var(--good); }
 .ex .hd .t { flex: 1; min-width: 0; }
@@ -346,6 +356,14 @@ textarea.io.notes { font-family: var(--body); font-size: 16px; font-weight: 400;
 .legend .sw:first-child { margin-left: 0; }
 
 .target .why { color: var(--ink); font-weight: 600; }
+
+.opts { display: flex; flex-direction: column; gap: 6px; }
+.opt { text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; gap: 2px; }
+.opt b { font-weight: 600; font-size: 14.5px; }
+.opt span { font-size: 13px; color: var(--ink-2); }
+.opt.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.tbl.kv td:first-child { width: auto; }
+.note .linkish { margin-top: 6px; font-weight: 600; color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; }
 
 </style>
 </head>
@@ -622,13 +640,14 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   const ICON = {
     check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+    grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>',
   };
 
   /* ---------- state ---------- */
   const LS = "benchComeback.v1";
   const DEF = { max: { bench: 80, squat: 0, dead: 0 }, best: 105, round: 2.5, bar: 20, restBase: 180, restAcc: 90, sound: true, z2: 120, z45: 20, goalKg: 0, warmups: true, auto: true, calTime: "18:00", calAlarm: 60, week: { lift: [0, 2, 4], bjj: [], z2: [1, 5], iv: [] }, cycleStart: 0, started: 0, maxHist: [], u: 0 };
   const S = { settings: JSON.parse(JSON.stringify(DEF)), logs: {}, acts: { list: [], u: 0 }, body: { list: [], u: 0 }, active: null, live: null, iv: null };
-  const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null };
+  const ui = { view: "today", open: -1, openWeek: null, timers: {}, q: "", rest: null, calc: { w: 60, r: 8 }, plate: 60, sel: null, hMonth: null, hDay: null, hFilter: "all", af: null, cy: null, addAfter: null };
 
   function applyLoaded(j) {
     if (!j) return;
@@ -729,7 +748,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- program maths ---------- */
   const roundKg = (kg) => { const st = S.settings.round || 2.5; return Math.round(kg / st) * st; };
-  const maxFor = (ex) => (EX[ex].max ? S.settings.max[EX[ex].max] || 0 : 0);
+  const maxFor = (ex) => { const k = EX[ex].max; if (!k) return 0; const n = k === "bench" && S.settings.cyc ? ctxWeek() : 0; return n ? cycMax(n) : S.settings.max[k] || 0; };
   const MAXNAME = { bench: "bench", squat: "squat", dead: "deadlift" };
   function segW(ex, seg) {
     if (seg.k === "pct" || seg.k === "test") { const m = maxFor(ex); return m ? roundKg((m * seg.v) / 100) : null; }
@@ -834,12 +853,90 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   }
   function planRow(v, i) { let n = 0; for (const seg of v.segs) { if (i < n + seg.s) return seg; n += seg.s; } return null; }
 
+  /* ---------- session order and supersets: any exercise can be moved, and any two neighbours linked ---------- */
+  function ordOf(log) {
+    const n = itemsOf(log).length, seen = new Set(), out = [];
+    for (const i of log.order || []) if (Number.isInteger(i) && i >= 0 && i < n && !seen.has(i)) { seen.add(i); out.push(i); }
+    for (let i = 0; i < n; i++) if (!seen.has(i)) out.push(i);
+    return out;
+  }
+  const ssOn = (log, items, i) => { const st = log.items[i]; return st && st.ss != null ? !!st.ss : !!(items[i] && items[i].ss); };
+  // exercises linked as a superset travel together
+  function blocksOf(log) {
+    const items = itemsOf(log), out = [];
+    let link = false;
+    for (const i of ordOf(log)) { if (link) out[out.length - 1].push(i); else out.push([i]); link = ssOn(log, items, i); }
+    return out;
+  }
+  const blockOf = (log, i) => blocksOf(log).find((b) => b.includes(i)) || [i];
+  function moveBlock(log, from, to) {
+    const b = blocksOf(log);
+    if (from === to || from < 0 || to < 0 || from >= b.length || to >= b.length) return false;
+    b.splice(to, 0, b.splice(from, 1)[0]);
+    log.order = b.flat(); touchLog(log);
+    return true;
+  }
+
+  /* ---------- the 13-week cycle's bench max: one number for all 13 weeks, or a weekly climb toward a benchmark ---------- */
+  let CW = 0, missMemo = null;
+  const weekNo = (day) => (day && day.week && day.week.phase === "cycle" ? day.week.n : 0);
+  function inWeek(day, fn) { const was = CW; CW = weekNo(day); try { return fn(); } finally { CW = was; } }
+  const ctxWeek = () => CW || (ui.view === "workout" && activeLog() ? weekNo(DAYS[activeLog().day]) : 0);
+  // cycle weeks in which a bench set fell short of its target reps: each one holds the climb for a week
+  function missWeeks() {
+    if (missMemo) return missMemo;
+    const out = new Set();
+    for (const l of finished()) {
+      const day = DAYS[l.day], n = weekNo(day);
+      if (!n || l.end < (S.settings.cycleStart || 0)) continue;
+      day.items.forEach((it, i) => {
+        const st = l.items[i]; if (!st || st.ex !== "bench") return;
+        st.sets.forEach((s, si) => { const seg = planRow(it, si); if (s.d && seg && seg.k === "pct" && +s.r > 0 && +s.r < seg.r) out.add(n); });
+      });
+    }
+    return (missMemo = out);
+  }
+  function cycMaxOf(c, n, held) {
+    if (c.from === c.to) return c.to;
+    return Math.round((c.from + ((c.to - c.from) * Math.max(0, Math.min(12, n - 1 - held))) / 12) * 2) / 2;
+  }
+  const heldBefore = (n) => { let h = 0; for (const k of missWeeks()) if (k < n) h++; return h; };
+  const cycMax = (n) => (S.settings.cyc ? cycMaxOf(S.settings.cyc, n, heldBefore(n)) : S.settings.max.bench);
+  const climbing = () => { const c = S.settings.cyc; return !!c && c.from !== c.to; };
+  // the stored bench max follows the week that is up next, so every screen shows the same number
+  function syncCyc() {
+    if (!S.settings.cyc) return;
+    const n = weekNo(nextDay());
+    if (n) { const m = cycMax(n); if (m !== S.settings.max.bench) setBenchMax(m); }
+  }
+  // a max typed in by hand: before the cycle it moves the start of the climb, during the cycle it fixes the max
+  function userMax(v) {
+    const c = S.settings.cyc;
+    if (c) S.settings.cyc = !weekNo(nextDay()) && c.from !== c.to && v < c.to ? { from: v, to: c.to } : { from: v, to: v };
+    setBenchMax(v);
+  }
+
+  /* the plan's sequence: the session after PATH[i]. A booked jump (moving on to the cycle early) skips what lies between */
+  function stepIdx(i) {
+    const j = S.settings.jump, to = j ? PATH.findIndex((d) => d.id === j.to) : -1;
+    let n = i + 1;
+    if (to >= 0 && n < to && (!j.after || doneLog(j.after) || PATH.findIndex((d) => d.id === j.after) <= i)) n = to;
+    while (n < PATH.length && doneLog(PATH[n].id)) n++;
+    return n;
+  }
+  function rampLeft() {
+    const nx = nextDay(); if (!nx || nx.week.phase !== "ramp") return 0;
+    let i = PATH.findIndex((d) => d.id === nx.id), c = 0;
+    while (i < PATH.length && PATH[i].week.phase === "ramp") { c++; i = stepIdx(i); }
+    return c;
+  }
+
   const doneLog = (dayId) => finished().find((l) => l.day === dayId && (DAYS[dayId].phase === "split" || l.end >= (S.settings.cycleStart || 0)));
   function nextDay() {
     let lastIdx = -1, lastEnd = 0;
     PATH.forEach((d, i) => { const l = doneLog(d.id); if (l && l.end > lastEnd) { lastEnd = l.end; lastIdx = i; } });
-    for (let i = lastIdx + 1; i < PATH.length; i++) if (!doneLog(PATH[i].id)) return PATH[i];
-    return null;
+    const n = stepIdx(lastIdx);
+    return n < PATH.length ? PATH[n] : null;
   }
   const logVolume = (l) => Object.values(l.items).reduce((a, st) => a + st.sets.reduce((b, s) => b + (s.d && +s.w > 0 && +s.r > 0 ? s.w * s.r : 0), 0), 0);
   const logSets = (l) => Object.values(l.items).reduce((a, st) => a + st.sets.filter((s) => s.d).length, 0);
@@ -874,7 +971,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     const log = { id, day: dayId, date: dkey(), start: Date.now(), end: 0, items: {}, u: 0 };
     const checkedIn = recOn(dkey());
     if (checkedIn && checkedIn.rec != null) log.rec = checkedIn.rec;
-    day.items.forEach((it, i) => { const sets = defaultRows(it, id, log.rec); log.items[i] = { ex: it.ex, alt: false, sets }; if (lastWhy) log.items[i].why = lastWhy; });
+    inWeek(day, () => day.items.forEach((it, i) => { const sets = defaultRows(it, id, log.rec); log.items[i] = { ex: it.ex, alt: false, sets }; if (lastWhy) log.items[i].why = lastWhy; }));
     S.logs[id] = log; S.active = id;
     if (!S.settings.started) { S.settings.started = Date.now(); touchSettings(); }
     touchLog(log);
@@ -883,9 +980,10 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   }
   const itemDone = (st) => st.sets.length > 0 && st.sets.every((s) => s.d);
   function firstOpen(log, after = -1) {
-    const day = { items: itemsOf(log) }, ok = (i) => !itemDone(log.items[i]) && !skipToday(log, day.items[i], log.items[i]);
-    for (let i = after + 1; i < day.items.length; i++) if (ok(i)) return i;
-    for (let i = 0; i <= after; i++) if (ok(i)) return i;
+    const items = itemsOf(log), ord = ordOf(log), ok = (i) => !itemDone(log.items[i]) && !skipToday(log, items[i], log.items[i]);
+    const p = ord.indexOf(after);
+    for (let k = p + 1; k < ord.length; k++) if (ok(ord[k])) return ord[k];
+    for (let k = 0; k <= p; k++) if (ok(ord[k])) return ord[k];
     return -1;
   }
   const restFor = (ex) => EX[ex].rest || (EX[ex].base ? S.settings.restBase : S.settings.restAcc);
@@ -899,11 +997,13 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       set.d = true; set.t = Date.now();
       touchLog(log);
       const ex = v.ex;
-      const partnerNext = it.ss ? idx + 1 : null, partnerPrev = idx > 0 && day.items[idx - 1].ss ? idx - 1 : null;
-      if (partnerNext != null && !itemDone(log.items[partnerNext])) { ui.open = partnerNext; toast("Superset: straight to " + EX[variant(day.items[partnerNext], log.items[partnerNext]).ex].n); }
+      // a superset: straight to the next exercise in the group, and the rest starts after the last one
+      const blk = blockOf(log, idx), nx = blk[blk.indexOf(idx) + 1];
+      if (nx != null && !itemDone(log.items[nx])) { ui.open = nx; toast("Superset: straight to " + EX[variant(day.items[nx], log.items[nx]).ex].n); }
       else {
         if (seg.k !== "time" && seg.k !== "test") startRest(restFor(ex), EX[ex].n);
-        if (partnerPrev != null && !itemDone(log.items[partnerPrev])) ui.open = partnerPrev;
+        const back = blk.length > 1 ? blk.find((k) => !itemDone(log.items[k])) : null;
+        if (back != null) ui.open = back;
         else if (itemDone(st) && seg.k !== "test") { const n = firstOpen(log, idx); if (n >= 0) ui.open = n; }
       }
     } else { set.d = false; touchLog(log); }
@@ -996,7 +1096,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       const left = st ? st.sets.filter((s) => !s.d).length : nSets(v);
       if (!left) return;
       const warm = !e.timed && (!st || !st.sets.some((s) => s.d)) && warmFirst(items, i, log) ? 180 : 0;
-      const t = e.timed ? v.segs[0].v * 60 : left * (40 + (it.ss ? 15 : restFor(v.ex))) + 60 + warm;
+      const t = e.timed ? v.segs[0].v * 60 : left * (40 + ((log ? ssOn(log, items, i) : it.ss) ? 15 : restFor(v.ex))) + 60 + warm;
       if (log ? skipToday(log, it, st) : e.optional) opt += t; else sec += t;
     });
     return { min: Math.round(sec / 60), opt: Math.round(opt / 60) };
@@ -1008,7 +1108,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
 
   /* ---------- small UI pieces ---------- */
   const dayTitle = (d) => (d.phase === "split" ? d.name : d.week.title + " · " + d.name);
-  function planList(day, log) {
+  const planList = (day, log) => inWeek(day, () => planList0(day, log));
+  function planList0(day, log) {
     return `<ul class="plan">${day.items.map((it, i) => {
       const st = log ? log.items[i] : null, v = variant(it, st), e = EX[v.ex];
       return `<li><span class="nm ${e.base ? "b" : ""}">${esc(e.n)}${it.alt && !st ? ` <span class="muted small">or ${esc(EX[it.alt.ex].n)}</span>` : ""}${it.ss ? ' <span class="ss">SUPERSET ↓</span>' : ""}${e.optional ? ' <span class="muted small">optional</span>' : ""}</span><span class="tg">${esc(summary(v))}</span></li>`;
@@ -1075,7 +1176,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     let h = `<section class="band"><div class="wrap stack">
       <p class="eyebrow">${esc(today)}</p>
       ${next ? `<div><h1 class="display">${esc(next.week.title)}</h1><p class="tagline">${esc(next.week.tag)}</p></div>${rail(next)}
-        <p class="muted small">${next.week.phase === "ramp" ? "3 comeback weeks, then the 13-week program" : "13-week program"} · session ${next.week.days.findIndex((d) => d.id === next.id) + 1} of ${next.week.days.length} this week</p>`
+        <p class="muted small">${next.week.phase === "ramp" ? (S.settings.jump ? "Comeback, then the 13-week cycle" : "3 comeback weeks, then the 13-week program") : "13-week program"} · session ${next.week.days.findIndex((d) => d.id === next.id) + 1} of ${next.week.days.length} this week</p>`
       : `<div><h1 class="display">Cycle complete</h1><p class="tagline">Celebrate, then go again</p></div>${rail(null)}<p class="muted small">Enter your new max in Tools and start the next cycle from there.</p>`}
     </div></section><div class="wrap stack" style="padding-top:16px">`;
     if (cur) h += `<div class="card stack"><p class="eyebrow">In progress</p><h2>${esc(dayTitle(DAYS[cur.day]))}</h2><p class="muted small">${logSets(cur)} sets logged · started ${new Date(cur.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · ≈ ${estimate(DAYS[cur.day], cur).min} min left</p><button class="btn gold wide" data-a="resume">Resume workout</button></div>`;
@@ -1086,7 +1187,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       <p class="small muted">${estNote(next)}</p>
       <button class="btn primary wide" data-a="start" data-day="${next.id}">Start workout</button>
       <button class="btn ghost wide sm" data-a="nav" data-v="program">Pick a different day</button></div>`;
-    h += coachNote(next);
+    h += cycNote(next) + coachNote(next);
     h += `<div class="tiles"><div class="tile"><b class="num">${lifts}</b><span>lifting this week</span></div><div class="tile"><b class="num">${bjj}</b><span>BJJ this week</span></div><div class="tile"><b class="num">${fmt(S.settings.max.bench)}</b><span>bench max, kg</span></div></div>
       ${bodyRow()}
       <div class="card stack"><div><h2>Other training</h2><p class="small muted">Running, rowing, assault bike, BJJ or anything else, on any day: log it, book it ahead, or time it live.${cardio.length ? ` This week: ${cardio.length} cardio ${cardio.length === 1 ? "session" : "sessions"}, ${cardioMin} minutes.` : ""}</p></div>
@@ -1101,16 +1202,16 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (ui.openWeek == null) ui.openWeek = next ? next.week.id : "r1";
     const wk = (w) => {
       const open = ui.openWeek === w.id;
-      return `<div class="wk"><button data-a="week" data-id="${w.id}" aria-expanded="${open}"><span class="no">${w.phase === "split" ? "S" : w.phase === "ramp" ? "C" + w.n : w.n}</span><span class="t"><b>${esc(w.title)}</b><span>${esc(w.tag)}</span></span>
+      return `<div class="wk"><button data-a="week" data-id="${w.id}" aria-expanded="${open}"><span class="no">${w.phase === "split" ? "S" : w.phase === "ramp" ? "C" + w.n : w.n}</span><span class="t"><b>${esc(w.title)}</b><span>${esc(w.tag)}${w.phase === "cycle" && climbing() ? " · bench max " + fmt(cycMax(w.n)) + " kg" : ""}</span></span>
         ${w.phase === "split" ? "" : `<span class="dots">${w.days.map((d) => `<i class="${doneLog(d.id) ? "d" : ""}"></i>`).join("")}</span>`}</button>
         ${open ? `<div class="days">${w.days.map((d) => { const l = doneLog(d.id); const full = DAYS[d.id];
           return `<div class="day"><div class="h"><b>${esc(d.name)}</b><span class="est">${estText(full)}</span>${l ? `<span class="pill good">Done ${shortDate(l.end)}</span>` : next && next.id === d.id ? '<span class="pill gold">Next</span>' : ""}</div>${planList(full)}
           <button class="btn sm ${next && next.id === d.id ? "primary" : ""}" data-a="start" data-day="${d.id}">${l ? "Do it again" : "Start this day"}</button></div>`; }).join("")}</div>` : ""}</div>`;
     };
-    return `<section class="band"><div class="wrap stack"><p class="eyebrow">Program</p><h1 class="display">Press with confidence</h1><p class="muted small">Weights are worked out from your maxes: bench ${fmt(S.settings.max.bench)} kg${S.settings.max.squat ? ", squat " + fmt(S.settings.max.squat) + " kg" : ""}${S.settings.max.dead ? ", deadlift " + fmt(S.settings.max.dead) + " kg" : ""}. Every day opens with your 10-minute warm-up and back extensions.</p></div></section>
+    return `<section class="band"><div class="wrap stack"><p class="eyebrow">Program</p><h1 class="display">Press with confidence</h1><p class="muted small">Weights are worked out from your maxes: bench ${fmt(S.settings.max.bench)} kg${S.settings.max.squat ? ", squat " + fmt(S.settings.max.squat) + " kg" : ""}${S.settings.max.dead ? ", deadlift " + fmt(S.settings.max.dead) + " kg" : ""}. ${climbing() ? `In the 13-week cycle the bench max climbs from ${fmt(S.settings.cyc.from)} to ${fmt(S.settings.cyc.to)} kg, and each week is shown at its own max. ` : ""}Every day opens with your 10-minute warm-up and back extensions.</p></div></section>
       <div class="wrap stack" style="padding-top:16px">
       <h2 class="section-title">Comeback · 3 weeks</h2>${PROGRAM.filter((w) => w.phase === "ramp").map(wk).join("")}
-      <h2 class="section-title">The 13-week cycle</h2>${PROGRAM.filter((w) => w.phase === "cycle").map(wk).join("")}
+      <h2 class="section-title">The 13-week cycle</h2>${cycNote(next) || `<button class="btn ghost wide sm" data-a="cyc-open">Cycle plan: which bench max it runs on</button>`}${PROGRAM.filter((w) => w.phase === "cycle").map(wk).join("")}
       <h2 class="section-title">Extra days</h2>${wk(SPLIT_WEEK)}
       <button class="btn wide" data-a="start" data-day="free">Start a free workout: pick your own exercises</button></div>`;
   }
@@ -1190,7 +1291,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         <div class="grid3"><div class="field"><label for="mx-bench">Bench, kg</label><input id="mx-bench" data-set="max.bench" type="number" inputmode="decimal" step="2.5" value="${s.max.bench || ""}"></div>
         <div class="field"><label for="mx-squat">Squat, kg</label><input id="mx-squat" data-set="max.squat" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.squat || ""}"></div>
         <div class="field"><label for="mx-dead">Deadlift, kg</label><input id="mx-dead" data-set="max.dead" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.dead || ""}"></div></div>
-        <p class="small muted">Bench is set from your first two sessions: 70 kg for 4 with two or three reps left points to a max a little over 80 kg, so the comeback weeks use 80. The rep test at the end of comeback week 3 replaces it. With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
+        <p class="small muted">${s.cyc ? (climbing() ? `Cycle plan: the bench max climbs from ${fmt(s.cyc.from)} kg in week 1 to ${fmt(s.cyc.to)} kg in week 13, one step a week. ` : `Cycle plan: bench max ${fmt(s.cyc.to)} kg for all 13 weeks. `) : ""}With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
+        <button class="btn sm" data-a="cyc-open">Cycle plan</button>
         <div class="field"><label for="mx-best">Old best bench, kg (the line on the chart)</label><input id="mx-best" data-set="best" type="number" inputmode="decimal" step="2.5" value="${s.best}"></div></div>
       <div class="card stack"><h2>One-rep max calculator</h2><div class="grid2"><div class="field"><label for="c-w">Weight, kg</label><input id="c-w" data-calc="w" type="number" inputmode="decimal" step="2.5" value="${c.w}"></div><div class="field"><label for="c-r">Reps</label><input id="c-r" data-calc="r" type="number" inputmode="numeric" step="1" value="${c.r}"></div></div>
         <div id="calc-out">${calcOut()}</div></div>
@@ -1242,16 +1344,16 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       <div class="wrap stack" style="padding-top:14px">`;
     h += recCard(log);
     let n = 0;
-    day.items.forEach((it, i) => {
-      const st = log.items[i], v = variant(it, st), e = EX[v.ex], open = ui.open === i, done = itemDone(st);
-      const prevSS = i > 0 && day.items[i - 1].ss;
+    const blocks = blocksOf(log);
+    blocks.forEach((blk) => blk.forEach((i, p) => {
+      const it = day.items[i], st = log.items[i], v = variant(it, st), e = EX[v.ex], open = ui.open === i, done = itemDone(st);
       n++;
-      h += `<div class="ex ${done ? "done" : ""} ${prevSS ? "ssn" : ""}" id="ex-${i}"><button class="hd" data-a="open" data-i="${i}" aria-expanded="${open}">
-        <span class="ix">${done ? "✓" : n}</span><span class="t"><b>${esc(e.n)} ${e.base ? '<span class="pill base">BASE</span>' : ""}${it.ss ? ' <span class="pill">SUPERSET</span>' : ""}${e.optional ? ' <span class="pill">OPTIONAL</span>' : skipToday(log, it, st) ? ' <span class="pill">OPTIONAL TODAY</span>' : ""}</b><span>${esc(summary(v))}</span></span>
-        <span class="cnt">${e.timed ? "" : st.sets.filter((s) => s.d).length + "/" + st.sets.length}</span></button>`;
+      h += `<div class="ex ${done ? "done" : ""} ${p > 0 ? "ssn" : ""}" id="ex-${i}"><div class="hdrow"><button class="hd" data-a="open" data-i="${i}" aria-expanded="${open}">
+        <span class="ix">${done ? "✓" : n}</span><span class="t"><b>${esc(e.n)} ${e.base ? '<span class="pill base">BASE</span>' : ""}${p < blk.length - 1 ? ' <span class="pill">SUPERSET</span>' : ""}${e.optional ? ' <span class="pill">OPTIONAL</span>' : skipToday(log, it, st) ? ' <span class="pill">OPTIONAL TODAY</span>' : ""}</b><span>${esc(summary(v))}</span></span>
+        <span class="cnt">${e.timed ? "" : st.sets.filter((s) => s.d).length + "/" + st.sets.length}</span></button>${blocks.length > 1 ? `<button class="grip" data-i="${i}" aria-label="Move ${esc(e.n)}: drag, or use the up and down arrow keys">${ICON.grip}</button>` : ""}</div>`;
       if (open) h += `<div class="bd">${exBody(log, day, i, it, st, v, e)}</div>`;
       h += `</div>`;
-    });
+    }));
     h += `${day.items.length ? "" : `<div class="empty">This workout is empty. Add the exercises you want, in any order.</div>`}<button class="btn wide" data-a="addex-open">+ Add an exercise</button><div class="field"><label for="wnote">Session notes</label><textarea class="io notes" id="wnote" data-note="s" placeholder="Sleep, energy, anything worth remembering">${esc(log.note || "")}</textarea></div><button class="btn gold wide" data-a="finish-ask">Finish workout</button><button class="btn ghost wide sm danger" data-a="discard-ask">Discard this workout</button></div>`;
     return h;
   }
@@ -1286,6 +1388,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
       big = nSets(v) + " sets";
       sub.push(v.segs.every((s) => s.k === "pct") ? "Ladder: " + v.segs.map((s) => `${s.v}%×${s.r}${s.s > 1 ? "×" + s.s : ""}`).join(", ") : "Build up set by set");
     }
+    if (e.max === "bench" && v.segs.some((s) => s.k === "pct") && climbing() && ctxWeek()) sub.push(`Week ${ctxWeek()} of the climb from ${fmt(S.settings.cyc.from)} to ${fmt(S.settings.cyc.to)} kg: this week's max is ${fmt(maxFor(v.ex))} kg`);
     sub.push(`Rest ${clock(restFor(v.ex))} between sets`);
     h += `<div class="target"><b class="num">${esc(big)}</b>${sub.filter(Boolean).map((s) => `<span>${esc(s)}</span>`).join("")}
       ${st.why ? `<span class="why">${esc(st.why)}</span>` : ""}
@@ -1305,6 +1408,10 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     h += `<div class="field"><label for="xn-${log.id}-${i}">Note on this exercise</label>${ln ? `<p class="small muted">Last time, ${shortDate(ln.t)}: ${esc(ln.note)}</p>` : ""}<input id="xn-${log.id}-${i}" data-note="i" data-i="${i}" type="text" maxlength="140" placeholder="${ln ? "New note" : "Grip, pain, a cue that worked. Shown next time"}" value="${esc(st.note || "")}"></div>`;
     if (seg0.k === "test") { const t = testResult(log); if (t) h += testBox(log); }
     h += `<div class="linkrow"><button data-a="addset" data-i="${i}">+ Add a set</button>${st.sets.length > 1 ? `<button data-a="rmset" data-i="${i}">Remove last set</button>` : ""}${it.alt ? `<button data-a="alt" data-i="${i}">Swap to ${esc(EX[(st.alt ? it : it.alt).ex].n)}</button>` : ""}<button data-a="ex" data-ex="${v.ex}">Technique and history</button>${it.extra ? `<button data-a="rmex" data-i="${i}">Remove exercise</button>` : ""}</div>`;
+    // order and supersets
+    const blocks = blocksOf(log), bk = blocks.findIndex((b) => b.includes(i)), blk = blocks[bk], at = blk.indexOf(i), linked = at < blk.length - 1;
+    const nxt = !linked && blocks[bk + 1] ? blocks[bk + 1][0] : null, nxE = nxt != null ? EX[variant(day.items[nxt], log.items[nxt]).ex] : null;
+    h += `<div class="linkrow">${bk > 0 ? `<button data-a="mv" data-i="${i}" data-d="-1">Move up</button>` : ""}${bk < blocks.length - 1 ? `<button data-a="mv" data-i="${i}" data-d="1">Move down</button>` : ""}${linked ? `<button data-a="sslink" data-i="${i}">Unlink the superset</button>` : `${nxE && !nxE.timed ? `<button data-a="sslink" data-i="${i}">Superset with ${esc(nxE.n)}</button>` : ""}<button data-a="addex-open" data-after="${i}">Add a superset partner</button>`}${at > 0 ? `<button data-a="sslink" data-i="${blk[at - 1]}">Unlink from ${esc(EX[variant(day.items[blk[at - 1]], log.items[blk[at - 1]]).ex].n)}</button>` : ""}</div>`;
     return h;
   }
 
@@ -1517,7 +1624,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     times.sort((a, b) => a - b);
     const restOf = (s) => { const i = s.t ? times.indexOf(s.t) : -1; if (i <= 0) return ""; const r = (s.t - times[i - 1]) / 1000; return r > 0 && r < 1800 ? clock(r) : ""; };
     let cards = "";
-    items.forEach((it, i) => {
+    ordOf(l).forEach((i) => {
       const st = l.items[i]; if (!st) return;
       const ex = st.ex, x = EX[ex], d = st.sets.filter((s) => s.d);
       if (x.timed) { if (d.length) cards += `<div class="card row"><h2 class="grow">${esc(x.n)}</h2><span class="pill good">Done</span></div>`; else if (!x.optional) skipped.push(x.n); return; }
@@ -1595,20 +1702,26 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     hday: (d) => { ui.hDay = ui.hDay === d.d ? null : d.d; render(true); },
     hmonth: (d) => { const m = new Date(ui.hMonth); ui.hMonth = new Date(m.getFullYear(), m.getMonth() + +d.d, 1).getTime(); ui.hDay = null; render(true); },
     hfilter: (d) => { ui.hFilter = d.k; render(true); },
-    "addex-open": () => { sheet(`<h2>Add an exercise</h2><input class="search" id="addq" type="search" placeholder="Search in English or Russian" autocomplete="off"><div class="hist" id="addlist">${addList("")}</div><button class="btn wide" data-a="close">Cancel</button>`); },
+    "addex-open": (d) => { ui.addAfter = d && d.after != null ? +d.after : null; sheet(`<h2>${ui.addAfter != null ? "Add a superset partner" : "Add an exercise"}</h2><input class="search" id="addq" type="search" placeholder="Search in English or Russian" autocomplete="off"><div class="hist" id="addlist">${addList("")}</div><button class="btn wide" data-a="close">Cancel</button>`); },
     addex: (d) => {
       const log = activeLog(); if (!log) return;
-      const e = EX[d.ex], spec = e.timed ? (d.ex === "cardio" ? "30min" : "10min") : (e.eq === "bw" ? "BW" : "K") + "x10x3";
+      const a = ui.addAfter != null && log.items[ui.addAfter] && !EX[d.ex].timed ? ui.addAfter : null; ui.addAfter = null;
+      const e = EX[d.ex], spec = e.timed ? (d.ex === "cardio" ? "30min" : "10min") : (e.eq === "bw" ? "BW" : "K") + "x10x" + (a != null ? Math.max(1, log.items[a].sets.length) : 3);
       log.extra = [...(log.extra || []), d.ex + "@" + spec];
       const items = itemsOf(log), i = items.length - 1;
       log.items[i] = { ex: d.ex, alt: false, sets: defaultRows(items[i], log.id, log.rec) };
       if (lastWhy) log.items[i].why = lastWhy;
+      // a superset partner goes straight after its exercise and is linked to it
+      if (a != null) { const ord = ordOf(log).filter((k) => k !== i), fwd = ssOn(log, items, a) && ord.indexOf(a) < ord.length - 1; ord.splice(ord.indexOf(a) + 1, 0, i); log.order = ord; log.items[a].ss = true; if (fwd) log.items[i].ss = true; }
       touchLog(log); ui.open = i; closeSheet(); render(true);
       const n = $("#ex-" + i); if (n) n.scrollIntoView({ block: "center" });
     },
     rmex: (d) => {
       const log = activeLog(); if (!log || !log.extra) return;
       const base = DAYS[log.day].items.length, p = +d.i - base; if (p < 0) return;
+      const ord = ordOf(log), before = ord[ord.indexOf(+d.i) - 1], all = itemsOf(log);
+      if (before != null && log.items[before] && ssOn(log, all, before) && !ssOn(log, all, +d.i)) log.items[before].ss = false;
+      log.order = ord.filter((k) => k !== +d.i).map((k) => (k > +d.i ? k - 1 : k));
       log.extra.splice(p, 1);
       const n = base + log.extra.length;
       for (let k = +d.i; k < n; k++) log.items[k] = log.items[k + 1];
@@ -1620,6 +1733,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   /* ---------- render + routing ---------- */
   const VIEWS = { today: viewToday, program: viewProgram, history: viewHistory, session: viewSession, progress: viewProgress, exercises: viewExercises, tools: viewTools, workout: viewWorkout, live: viewLive, interval: viewInterval, week: viewWeek };
   function render(keepScroll) {
+    if (drag) return;
+    missMemo = null; syncCyc();
     const y = window.scrollY, v = $("#view");
     v.innerHTML = VIEWS[ui.view]();
     const tab = { session: "history", exercises: "tools", week: "today" }[ui.view] || ui.view;
@@ -1685,7 +1800,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     log: (d) => openSess("log", d.id),
     "log-del": (d, el) => { if (el.dataset.sure) { S.logs[d.id] = { id: d.id, del: true, u: Date.now() }; saveLocal(); push("log_" + d.id); closeSheet(); go("history"); toast("Workout deleted"); } else { el.dataset.sure = 1; el.textContent = "Tap again to delete"; } },
     reopen: (d) => { if (activeLog()) return toast("Finish the open workout first"); const l = S.logs[d.id]; l.end = 0; S.active = l.id; touchLog(l); closeSheet(); ui.open = -1; go("workout"); },
-    setmax: (d) => { setBenchMax(+d.v); closeSheet(); render(true); toast("Bench max set to " + fmt(+d.v) + " kg"); },
+    setmax: (d) => { userMax(+d.v); closeSheet(); render(true); toast("Bench max set to " + fmt(+d.v) + " kg"); },
     "rest-add": () => { if (ui.rest) { ui.rest.end += 15000; ui.rest.total += 15; drawRest(); } },
     "rest-sub": () => { if (ui.rest) { ui.rest.end -= 15000; drawRest(); } },
     "rest-skip": () => { ui.rest = null; drawRest(); },
@@ -1715,7 +1830,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         saveLocal(); closeSheet(); render(); toast("Backup restored");
       } catch (e) { toast("That text is not a Bench Comeback backup"); }
     },
-    newcycle: (d, el) => { if (el.dataset.sure) { S.settings.cycleStart = Date.now(); touchSettings(); ui.openWeek = null; render(); toast("New cycle started. History is kept"); } else { el.dataset.sure = 1; el.textContent = "Tap again: restart from Comeback 1 / Week 1"; } },
+    newcycle: (d, el) => { if (el.dataset.sure) { S.settings.cycleStart = Date.now(); S.settings.jump = { to: "w1a", after: "" }; S.settings.cyc = { from: S.settings.max.bench, to: S.settings.max.bench }; touchSettings(); ui.openWeek = null; render(); toast("New cycle started. History is kept"); A["cyc-open"](); } else { el.dataset.sure = 1; el.textContent = "Tap again: restart from Week 1"; } },
     erase: (d, el) => {
       if (!el.dataset.sure) { el.dataset.sure = 1; el.textContent = "Tap again to erase every workout"; return; }
       for (const id in S.logs) { S.logs[id] = { id, del: true, u: Date.now() }; push("log_" + id); }
@@ -1970,11 +2085,140 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     "iv-discard": (d, el) => { if (!el.dataset.sure) { el.dataset.sure = 1; el.textContent = "Tap again to discard"; return; } S.iv = null; saveLocal(); go("today"); },
   });
 
+
+  /* ---------- cycle plan sheet: when the 13 weeks start and which bench max they run on ---------- */
+  function cyPlan() { const c = ui.cy; return c.mode === "climb" ? { from: c.from, to: c.to } : c.mode === "top" ? { from: c.to, to: c.to } : { from: c.from, to: c.from }; }
+  function cyOut() {
+    const c = ui.cy, p = cyPlan();
+    if (!(c.from >= 20) || !(c.to >= 20)) return `<p class="small muted">Enter both numbers to see the weights.</p>`;
+    if (c.mode === "climb" && c.to <= c.from) return `<p class="small muted">The benchmark has to be above today's max for a climb.</p>`;
+    const at = (n, pct) => roundKg((cycMaxOf(p, n, 0) * pct) / 100), w1 = at(1, 75), rel = Math.round((w1 / c.from) * 100);
+    const rows = [["Week 1, Monday", fmt(w1) + " kg × 3 × 5"], ["Week 6, Monday", "up to " + fmt(at(6, 85)) + " kg × 2"], ["Week 11, heaviest day", "up to " + fmt(at(11, 95)) + " kg × 3"], ["Week 13, max day", fmt(at(13, 100)) + " kg, then singles upward"]];
+    return `<table class="tbl kv"><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td class="w">${r[1]}</td></tr>`).join("")}</tbody></table>
+      <p class="small muted">${c.mode === "top" && c.to > c.from ? `Week 1's ${fmt(w1)} kg is ${rel}% of the ${fmt(c.from)} kg you can press today. The program means that day to be 75%, five sets with reps to spare. Week 2 asks for more.`
+        : c.mode === "climb" ? `The max rises about ${fmt(Math.round(((c.to - c.from) / 12) * 10) / 10)} kg a week. A bench set that falls short of its reps holds the climb for one week.`
+        : `The guide's own rule: one max, fixed for all 13 weeks. ${c.to > c.from ? `It ends near ${fmt(c.from)} kg, so ${fmt(c.to)} would take a second cycle.` : ""}`}</p>`;
+  }
+  function cycSheet() {
+    const c = ui.cy, nx = nextDay(), inRamp = !!nx && nx.week.phase === "ramp", left = inRamp ? PATH.slice(PATH.findIndex((d) => d.id === nx.id)).filter((d) => d.week.phase === "ramp").length : 0;
+    const opt = (k, t, s) => `<button class="opt ${c.mode === k ? "on" : ""}" data-a="cy-mode" data-k="${k}" aria-pressed="${c.mode === k}"><b>${t}</b><span>${s}</span></button>`;
+    const when = [0, 1, 2].filter((k) => k <= left - 1 || k === 0);
+    sheet(`<div><p class="eyebrow">13-week cycle</p><h2>${inRamp ? "Move on to the cycle" : "Cycle plan"}</h2>${inRamp ? `<p class="small muted">The comeback sessions in between are skipped. Your history is kept.</p>` : ""}</div>
+      ${inRamp ? `<div class="field"><span class="lbl">Week 1 starts</span><div class="chips">${when.map((k) => `<button class="chip ${c.when === k ? "on" : ""}" data-a="cy-when" data-k="${k}" aria-pressed="${c.when === k}">${k ? `After ${k} more full-body ${k === 1 ? "session" : "sessions"}` : "With my next session"}</button>`).join("")}</div></div>` : ""}
+      <div class="grid2"><div class="field"><label for="cy-from">${inRamp ? "Bench max today, kg" : "Bench max in week 1, kg"}</label><input id="cy-from" data-cy="from" type="number" inputmode="decimal" step="2.5" value="${c.from || ""}"></div>
+        <div class="field"><label for="cy-to">Benchmark, kg</label><input id="cy-to" data-cy="to" type="number" inputmode="decimal" step="2.5" value="${c.to || ""}"></div></div>
+      <div class="opts">${opt("climb", "Climb to the benchmark", "Starts from today's max and rises every week until week 13.")}${opt("top", "Benchmark from week 1", "Every percentage is taken from the benchmark straight away.")}${opt("flat", "Today's max for all 13 weeks", "The guide's rule. The benchmark stays a line on the chart.")}</div>
+      <div id="cy-out">${cyOut()}</div>
+      <p class="small muted">Why a climb: strength comes back faster than it was first built, but tendons and joints adapt more slowly than muscle. Small weekly steps let them keep up.</p>
+      <button class="btn primary wide" data-a="cy-save">${inRamp ? "Book it" : "Save the plan"}</button>${inRamp && S.settings.jump ? `<button class="btn wide" data-a="cy-cancel">Keep all three comeback weeks instead</button>` : ""}<button class="btn ghost wide" data-a="close">Cancel</button>`);
+  }
+  function cycNote(next) {
+    if (!next) return "";
+    const c = S.settings.cyc, j = S.settings.jump, plan = c ? (c.from !== c.to ? `Bench max climbs from ${fmt(c.from)} to ${fmt(c.to)} kg over the 13 weeks.` : `Bench max ${fmt(c.to)} kg for all 13 weeks.`) : "";
+    if (next.week.phase === "ramp") {
+      const booked = j && PATH.findIndex((d) => d.id === j.to) > PATH.findIndex((d) => d.id === next.id), n = booked ? rampLeft() : 0;
+      return booked ? `<div class="note"><b>The 13-week cycle starts after ${n === 1 ? "this session" : n + " more sessions"}.</b> ${plan}<br><button class="linkish" data-a="cyc-open">Change the plan</button></div>`
+        : `<button class="btn ghost wide sm" data-a="cyc-open">Move on to the 13-week cycle early</button>`;
+    }
+    if (next.week.phase !== "cycle" || !climbing()) return "";
+    const held = missWeeks().size;
+    return `<div class="note"><b>Bench max this week: ${fmt(cycMax(next.week.n))} kg.</b> ${plan}${held ? ` A short bench set held the climb for ${held === 1 ? "a week" : held + " weeks"}: it now reaches ${fmt(cycMax(13))} kg in week 13.` : ""}<br><button class="linkish" data-a="cyc-open">Change the plan</button></div>`;
+  }
+  Object.assign(A, {
+    "cyc-open": () => {
+      const c = S.settings.cyc, best = S.settings.best || 105, cur = S.settings.max.bench, j = S.settings.jump, nx = nextDay();
+      let when = 0;
+      if (j && j.after && nx && nx.week.phase === "ramp") when = Math.max(0, PATH.findIndex((d) => d.id === j.after) - PATH.findIndex((d) => d.id === nx.id) + 1);
+      ui.cy = !c ? { from: cur, to: best, mode: best > cur ? "climb" : "flat", when } : c.from !== c.to ? { from: c.from, to: c.to, mode: "climb", when }
+        : c.to >= best && cur < c.to ? { from: cur, to: c.to, mode: "top", when } : { from: c.from, to: Math.max(best, c.from), mode: "flat", when };
+      cycSheet();
+    },
+    "cy-mode": (d) => { ui.cy.mode = d.k; cycSheet(); },
+    "cy-when": (d) => { ui.cy.when = +d.k; cycSheet(); },
+    "cy-save": () => {
+      const c = ui.cy;
+      if (!(c.from >= 20) || !(c.to >= 20)) return toast("Enter both numbers first");
+      if (c.mode === "climb" && c.to <= c.from) return toast("The benchmark has to be above today's max");
+      const nx = nextDay(), inRamp = !!nx && nx.week.phase === "ramp";
+      S.settings.cyc = cyPlan(); S.settings.best = c.to;
+      if (inRamp) { const i = PATH.findIndex((d) => d.id === nx.id); S.settings.jump = { to: "w1a", after: c.when ? PATH[i + c.when - 1].id : "" }; }
+      touchSettings(); missMemo = null; syncCyc(); closeSheet(); render(true);
+      toast(inRamp ? (c.when ? "Booked: Week 1 follows " + c.when + " more " + (c.when === 1 ? "session" : "sessions") : "Week 1 is your next session") : "Cycle plan saved");
+    },
+    "cy-cancel": () => { delete S.settings.jump; touchSettings(); closeSheet(); render(true); toast("Back to the full comeback"); },
+    mv: (d) => {
+      const log = activeLog(); if (!log) return;
+      const k = blocksOf(log).findIndex((b) => b.includes(+d.i));
+      if (!moveBlock(log, k, k + +d.d)) return;
+      render(true);
+      const n = $("#ex-" + d.i); if (n) { const r = n.getBoundingClientRect(); if (r.top < 70 || r.bottom > innerHeight - 90) n.scrollIntoView({ block: "center" }); }
+      if (d.focus) { const g = document.querySelector(`.grip[data-i="${d.i}"]`); if (g) g.focus(); }
+    },
+    sslink: (d) => { const log = activeLog(); if (!log) return; const i = +d.i; log.items[i].ss = !ssOn(log, itemsOf(log), i); touchLog(log); render(true); },
+  });
+
+  /* ---------- drag an exercise by its handle to change the order ---------- */
+  let drag = null;
+  function dragMove(y) {
+    const g = drag; if (!g) return;
+    g.y = y;
+    const me = g.blocks[g.from], first = g.blocks[0], last = g.blocks[g.blocks.length - 1];
+    const dy = Math.max(first.top - me.top, Math.min(last.top + last.h - me.top - me.h, y - g.y0 + window.scrollY - g.sy)), mid = me.top + me.h / 2 + dy;
+    let to = g.from;
+    g.blocks.forEach((b, k) => {
+      if (k === g.from) return;
+      let sh = 0;
+      if (k < g.from && mid < b.top + b.h / 2) { sh = g.step; to--; } else if (k > g.from && mid > b.top + b.h / 2) { sh = -g.step; to++; }
+      b.els.forEach((n) => { n.style.transform = sh ? `translateY(${sh}px)` : ""; });
+    });
+    me.els.forEach((n) => { n.style.transform = `translateY(${dy}px)`; });
+    if (Math.abs(dy) > 4) g.moved = true;
+    g.to = to;
+  }
+  function dragEnd(commit) {
+    const g = drag; if (!g) return;
+    drag = null;
+    clearInterval(g.scroll);
+    g.blocks.forEach((b) => b.els.forEach((n) => { n.style.transform = ""; n.classList.remove("drag"); }));
+    $("#view").classList.remove("sorting");
+    const log = activeLog();
+    if (commit && log && g.to !== g.from) moveBlock(log, g.from, g.to);
+    else if (commit && !g.moved) toast("Hold the handle and drag up or down");
+    render(true);
+  }
+  document.addEventListener("pointerdown", (ev) => {
+    const grip = ev.target.closest ? ev.target.closest(".grip") : null;
+    if (!grip || drag || ui.view !== "workout" || ev.button > 0) return;
+    const log = activeLog(); if (!log) return;
+    ev.preventDefault();
+    const view = $("#view"), card = grip.closest(".ex"), t0 = card.getBoundingClientRect().top;
+    view.classList.add("sorting");
+    window.scrollBy(0, card.getBoundingClientRect().top - t0);
+    const blocks = blocksOf(log).map((b) => {
+      const els = b.map((i) => $("#ex-" + i)).filter(Boolean), a = els[0].getBoundingClientRect(), z = els[els.length - 1].getBoundingClientRect();
+      return { els, top: a.top + window.scrollY, h: z.bottom - a.top };
+    });
+    const from = blocks.findIndex((b) => b.els.includes(card));
+    if (from < 0 || blocks.length < 2) { view.classList.remove("sorting"); return; }
+    const nb = blocks[from + 1], pb = blocks[from - 1], gap = nb ? nb.top - blocks[from].top - blocks[from].h : blocks[from].top - pb.top - pb.h;
+    drag = { id: ev.pointerId, y0: ev.clientY, y: ev.clientY, sy: window.scrollY, blocks, from, to: from, step: blocks[from].h + gap, moved: false };
+    blocks[from].els.forEach((n) => n.classList.add("drag"));
+    drag.scroll = setInterval(() => { if (!drag) return; const d = drag.y < 130 ? -8 : drag.y > innerHeight - 110 ? 8 : 0; if (d) { window.scrollBy(0, d); dragMove(drag.y); } }, 16);
+    try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* the document listeners below still follow the pointer */ }
+  });
+  document.addEventListener("pointermove", (ev) => { if (drag && ev.pointerId === drag.id) { ev.preventDefault(); dragMove(ev.clientY); } }, { passive: false });
+  document.addEventListener("pointerup", (ev) => { if (drag && ev.pointerId === drag.id) dragEnd(true); });
+  document.addEventListener("pointercancel", (ev) => { if (drag && ev.pointerId === drag.id) dragEnd(false); });
+  document.addEventListener("keydown", (ev) => {
+    const g = ev.target.closest ? ev.target.closest(".grip") : null;
+    if (!g || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+    ev.preventDefault(); A.mv({ i: g.dataset.i, d: ev.key === "ArrowUp" ? -1 : 1, focus: 1 });
+  });
   /* ---------- warm-up sets: a short ramp before the first heavy barbell lift of each kind in a session ---------- */
   function warmFirst(items, i, log) {
     const e = EX[variant(items[i], log && log.items[i]).ex];
     if (!S.settings.warmups || !e.base || e.eq !== "bb") return false;
-    for (let j = 0; j < i; j++) { const x = EX[variant(items[j], log && log.items[j]).ex]; if (x.base && x.eq === "bb" && x.max === e.max) return false; }
+    for (const j of log ? ordOf(log) : items.map((_, k) => k)) { if (j === i) break; const x = EX[variant(items[j], log && log.items[j]).ex]; if (x.base && x.eq === "bb" && x.max === e.max) return false; }
     return true;
   }
   function warmSets(ex, W) {
@@ -2019,9 +2263,8 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     let idx = PATH.findIndex((d) => d.id === start.id);
     for (let w = 0; w <= Math.max(0, off); w++) for (const d of weekDays(w).map((t, i) => dayInfo(t, i))) {
       if (d.past || !d.todo.includes("lift")) continue;
-      while (idx < PATH.length && doneLog(PATH[idx].id)) idx++;
       if (idx >= PATH.length) return map;
-      map[d.k] = PATH[idx++];
+      map[d.k] = PATH[idx]; idx = stepIdx(idx);
     }
     return map;
   }
@@ -2088,7 +2331,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         if (kind === "lift") {
           if (!qd) continue;
           out.push({ k: d.k, id: "lift", title: "Strength: " + dayTitle(qd), min: Math.max(30, Math.round(estimate(qd).min / 5) * 5),
-            desc: qd.items.filter((it) => !EX[it.ex].optional).map((it) => EX[it.ex].n + ": " + summary(it)).join("\n") });
+            desc: qd.items.filter((it) => !EX[it.ex].optional).map((it) => EX[it.ex].n + ": " + inWeek(qd, () => summary(it))).join("\n") });
         } else out.push({ k: d.k, id: kind, title: kind === "iv" ? "Intervals, 4 × 4 min" : PK[kind], min: kind === "bjj" ? 90 : 40, desc: kind === "z2" ? "Easy pace, able to talk. Log the zone minutes from Whoop afterwards." : kind === "iv" ? "10 min easy, then 4 rounds of 4 min hard with 3 min easy between." : "" });
       }
       for (const a of d.booked) out.push({ k: d.k, id: "b" + a.id, title: actName(a), min: a.min || 45, desc: a.note || "" });
@@ -2187,6 +2430,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if (t.matches(".step input")) return onSetInput(t);
     if (t.id === "addq") { $("#addlist").innerHTML = addList(t.value); return; }
     if (t.id === "exq") { ui.q = t.value; const q = ui.q.trim().toLowerCase(); $("#exgrid").innerHTML = exGrid(Object.keys(EX).filter((k) => !q || (EX[k].n + " " + EX[k].ru + " " + EX[k].m).toLowerCase().includes(q))); return; }
+    if (t.dataset.cy) { ui.cy[t.dataset.cy] = parseFloat(t.value) || 0; $("#cy-out").innerHTML = cyOut(); return; }
     if (t.dataset.calc) { ui.calc[t.dataset.calc] = t.value; $("#calc-out").innerHTML = calcOut(); return; }
     if ("plate" in t.dataset) { ui.plate = t.value; $("#plate-out").innerHTML = plateOut(); return; }
   });
@@ -2197,7 +2441,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     if ("rec" in t.dataset) return onRec(t, true);
     if (!k) return;
     const num = "text" in t.dataset ? t.value : k === "sound" || k === "warmups" || k === "auto" ? !!t.value : Math.max(0, parseFloat(t.value) || 0);
-    if (k.startsWith("max.")) { const m = k.slice(4); if (m === "bench") { if (num > 0) setBenchMax(num); else { t.value = S.settings.max.bench; return; } } else { S.settings.max[m] = num; touchSettings(); } }
+    if (k.startsWith("max.")) { const m = k.slice(4); if (m === "bench") { if (num > 0) userMax(num); else { t.value = S.settings.max.bench; return; } } else { S.settings.max[m] = num; touchSettings(); } }
     else { S.settings[k] = num; touchSettings(); }
     toast("Saved");
     if (k === "round") render(true);
@@ -2230,6 +2474,18 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   loadLocal();
   adoptOrphans();
   if (!S.settings.m80) { const was = S.settings.max.bench; S.settings.m80 = 1; if (S.settings.u) { if (was === 75) setBenchMax(80); else touchSettings(); } }
+  // one-time: the cycle is booked to follow two more full-body sessions, with the bench max climbing from today's to the old best
+  if (!S.settings.m105) {
+    S.settings.m105 = 1;
+    if (S.settings.u) {
+      const nx = nextDay();
+      if (nx && ["r1c", "r2a", "r2b"].includes(nx.id) && !S.settings.cyc && !S.settings.jump) {
+        const to = S.settings.best || 105, from = S.settings.max.bench;
+        S.settings.cyc = { from: Math.min(from, to), to }; S.settings.jump = { to: "w1a", after: "r2b" };
+      }
+      touchSettings();
+    }
+  }
   // installed on a phone, outside Claude: ask the browser to keep this app's storage
   if (!window.claude) { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* not supported */ } }
   const h0 = location.hash.slice(1);
