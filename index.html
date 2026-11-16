@@ -500,8 +500,8 @@ const RAMP = [
     ["Full body C", "squat@Kx10x2 / legext@Kx12x2", "bench@70x6x3", "latpull@Kx10x2", "fly@Kx10x2", "hammer@Kx10x2", "abs@BWx20x2"],
   ] },
   { id: "r2", title: "Comeback 2", tag: "Full body, find the groove", days: [
-    ["Full body A", "squat@Kx10x3 / legext@Kx15x3", "bench@70x6x4", "row@Kx10x3", "ohp@35x6x3", "curl@Kx10x3", "abs@Kx25x3"],
-    ["Full body B", "dead@Kx8x3 # Light. This is technique practice", "bench@65x8x3", "latpull@Kx10x3", "lateral@Kx10x3", "pushdown@Kx10x3", "abs@Kx25x3"],
+    ["Full body A", "squat@Kx10x3 / legext@Kx15x3", "bench@85x4x4 # Heavier and shorter: the step up to week 1. Every rep at the same speed", "row@Kx10x3", "ohp@35x6x3", "curl@Kx10x3", "abs@Kx25x3"],
+    ["Full body B", "dead@Kx8x3 # Light. This is technique practice", "bench@75x6x3 # Easy on purpose. Monday is week 1", "latpull@Kx10x3", "lateral@Kx10x3", "pushdown@Kx10x3", "abs@Kx25x3"],
     ["Full body C", "squat@Kx8x3 / legext@Kx15x3", "bench@75x5x4", "incline@55x6x2", "row@Kx10x3", "hammer@Kx10x3", "abs@Kx25x3"],
   ] },
   { id: "r3", title: "Comeback 3", tag: "The program's split, then the test", days: [
@@ -909,10 +909,14 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
     const n = weekNo(nextDay());
     if (n) { const m = cycMax(n); if (m !== S.settings.max.bench) setBenchMax(m); }
   }
-  // a max typed in by hand: before the cycle it moves the start of the climb, during the cycle it fixes the max
+  // a max typed in by hand: before the cycle it is today's strength (the start of a climb; a booked benchmark above it stays), during the cycle it fixes the max
   function userMax(v) {
     const c = S.settings.cyc;
-    if (c) S.settings.cyc = !weekNo(nextDay()) && c.from !== c.to && v < c.to ? { from: v, to: c.to } : { from: v, to: v };
+    if (c) {
+      const before = !weekNo(nextDay());
+      if (before && c.from !== c.to && v < c.to) S.settings.cyc = { from: v, to: c.to };
+      else if (!(before && c.from === c.to && v <= c.to)) S.settings.cyc = { from: v, to: v };
+    }
     setBenchMax(v);
   }
 
@@ -1208,7 +1212,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
           return `<div class="day"><div class="h"><b>${esc(d.name)}</b><span class="est">${estText(full)}</span>${l ? `<span class="pill good">Done ${shortDate(l.end)}</span>` : next && next.id === d.id ? '<span class="pill gold">Next</span>' : ""}</div>${planList(full)}
           <button class="btn sm ${next && next.id === d.id ? "primary" : ""}" data-a="start" data-day="${d.id}">${l ? "Do it again" : "Start this day"}</button></div>`; }).join("")}</div>` : ""}</div>`;
     };
-    return `<section class="band"><div class="wrap stack"><p class="eyebrow">Program</p><h1 class="display">Press with confidence</h1><p class="muted small">Weights are worked out from your maxes: bench ${fmt(S.settings.max.bench)} kg${S.settings.max.squat ? ", squat " + fmt(S.settings.max.squat) + " kg" : ""}${S.settings.max.dead ? ", deadlift " + fmt(S.settings.max.dead) + " kg" : ""}. ${climbing() ? `In the 13-week cycle the bench max climbs from ${fmt(S.settings.cyc.from)} to ${fmt(S.settings.cyc.to)} kg, and each week is shown at its own max. ` : ""}Every day opens with your 10-minute warm-up and back extensions.</p></div></section>
+    return `<section class="band"><div class="wrap stack"><p class="eyebrow">Program</p><h1 class="display">Press with confidence</h1><p class="muted small">Weights are worked out from your maxes: bench ${fmt(S.settings.max.bench)} kg${S.settings.max.squat ? ", squat " + fmt(S.settings.max.squat) + " kg" : ""}${S.settings.max.dead ? ", deadlift " + fmt(S.settings.max.dead) + " kg" : ""}. ${climbing() ? `In the 13-week cycle the bench max climbs from ${fmt(S.settings.cyc.from)} to ${fmt(S.settings.cyc.to)} kg, and each week is shown at its own max. ` : S.settings.cyc && S.settings.cyc.to !== S.settings.max.bench ? `The 13-week cycle runs on a bench max of ${fmt(S.settings.cyc.to)} kg from week 1. ` : ""}Every day opens with your 10-minute warm-up and back extensions.</p></div></section>
       <div class="wrap stack" style="padding-top:16px">
       <h2 class="section-title">Comeback · 3 weeks</h2>${PROGRAM.filter((w) => w.phase === "ramp").map(wk).join("")}
       <h2 class="section-title">The 13-week cycle</h2>${cycNote(next) || `<button class="btn ghost wide sm" data-a="cyc-open">Cycle plan: which bench max it runs on</button>`}${PROGRAM.filter((w) => w.phase === "cycle").map(wk).join("")}
@@ -1291,7 +1295,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
         <div class="grid3"><div class="field"><label for="mx-bench">Bench, kg</label><input id="mx-bench" data-set="max.bench" type="number" inputmode="decimal" step="2.5" value="${s.max.bench || ""}"></div>
         <div class="field"><label for="mx-squat">Squat, kg</label><input id="mx-squat" data-set="max.squat" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.squat || ""}"></div>
         <div class="field"><label for="mx-dead">Deadlift, kg</label><input id="mx-dead" data-set="max.dead" type="number" inputmode="decimal" step="2.5" placeholder="not set" value="${s.max.dead || ""}"></div></div>
-        <p class="small muted">${s.cyc ? (climbing() ? `Cycle plan: the bench max climbs from ${fmt(s.cyc.from)} kg in week 1 to ${fmt(s.cyc.to)} kg in week 13, one step a week. ` : `Cycle plan: bench max ${fmt(s.cyc.to)} kg for all 13 weeks. `) : ""}With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
+        <p class="small muted">${s.cyc ? (climbing() ? `Cycle plan: the bench max climbs from ${fmt(s.cyc.from)} kg in week 1 to ${fmt(s.cyc.to)} kg in week 13, one step a week. ` : `Cycle plan: bench max ${fmt(s.cyc.to)} kg for all 13 weeks. ${s.cyc.to !== s.max.bench ? "The bench number above is for the sessions before week 1. " : ""}`) : ""}With no squat or deadlift max, those lifts show the percentage and you pick a comfortable weight.</p>
         <button class="btn sm" data-a="cyc-open">Cycle plan</button>
         <div class="field"><label for="mx-best">Old best bench, kg (the line on the chart)</label><input id="mx-best" data-set="best" type="number" inputmode="decimal" step="2.5" value="${s.best}"></div></div>
       <div class="card stack"><h2>One-rep max calculator</h2><div class="grid2"><div class="field"><label for="c-w">Weight, kg</label><input id="c-w" data-calc="w" type="number" inputmode="decimal" step="2.5" value="${c.w}"></div><div class="field"><label for="c-r">Reps</label><input id="c-r" data-calc="r" type="number" inputmode="numeric" step="1" value="${c.r}"></div></div>
@@ -2114,7 +2118,7 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   }
   function cycNote(next) {
     if (!next) return "";
-    const c = S.settings.cyc, j = S.settings.jump, plan = c ? (c.from !== c.to ? `Bench max climbs from ${fmt(c.from)} to ${fmt(c.to)} kg over the 13 weeks.` : `Bench max ${fmt(c.to)} kg for all 13 weeks.`) : "";
+    const c = S.settings.cyc, j = S.settings.jump, plan = c ? (c.from !== c.to ? `Bench max climbs from ${fmt(c.from)} to ${fmt(c.to)} kg over the 13 weeks.` : `Every bench weight is a percentage of ${fmt(c.to)} kg, fixed for all 13 weeks.`) : "";
     if (next.week.phase === "ramp") {
       const booked = j && PATH.findIndex((d) => d.id === j.to) > PATH.findIndex((d) => d.id === next.id), n = booked ? rampLeft() : 0;
       return booked ? `<div class="note"><b>The 13-week cycle starts after ${n === 1 ? "this session" : n + " more sessions"}.</b> ${plan}<br><button class="linkish" data-a="cyc-open">Change the plan</button></div>`
@@ -2474,14 +2478,26 @@ if (typeof module !== "undefined") module.exports = { EX, PROGRAM, SPLIT_WEEK, P
   loadLocal();
   adoptOrphans();
   if (!S.settings.m80) { const was = S.settings.max.bench; S.settings.m80 = 1; if (S.settings.u) { if (was === 75) setBenchMax(80); else touchSettings(); } }
-  // one-time: the cycle is booked to follow two more full-body sessions, with the bench max climbing from today's to the old best
+  // one-time: the cycle is booked to follow two more full-body sessions and runs on the benchmark (the old best) from week 1
   if (!S.settings.m105) {
     S.settings.m105 = 1;
     if (S.settings.u) {
       const nx = nextDay();
       if (nx && ["r1c", "r2a", "r2b"].includes(nx.id) && !S.settings.cyc && !S.settings.jump) {
         const to = S.settings.best || 105, from = S.settings.max.bench;
-        S.settings.cyc = { from: Math.min(from, to), to }; S.settings.jump = { to: "w1a", after: "r2b" };
+        S.settings.cyc = { from: Math.max(from, to), to: Math.max(from, to) }; S.settings.jump = { to: "w1a", after: "r2b" };
+      }
+      touchSettings();
+    }
+  }
+  // one-time: a climb booked before the cycle began becomes the benchmark from week 1; the two sessions before it run on today's strength
+  if (!S.settings.m105b) {
+    S.settings.m105b = 1;
+    if (S.settings.u) {
+      const nx = nextDay(), c = S.settings.cyc;
+      if (nx && nx.week.phase === "ramp" && c) {
+        if (c.from !== c.to) S.settings.cyc = { from: c.to, to: c.to };
+        if (["r2a", "r2b"].includes(nx.id) && S.settings.jump && S.settings.max.bench < 87.5 && S.settings.cyc.to > 87.5) setBenchMax(87.5);
       }
       touchSettings();
     }
